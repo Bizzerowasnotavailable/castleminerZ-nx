@@ -1,0 +1,19 @@
+<!-- ILLink substitutions for third-party managed assemblies.
+
+     FNA's FNADllMap is a [ModuleInitializer], so the linker keeps its entire
+     body, including its System.Xml XmlDocument path. That single use pulls in
+     System.Private.Xml -> System.Net.Http -> System.Net.Security, which in turn
+     needs OpenSSL CryptoNative_* entry points that mono-nx does not ship.
+
+     On this target the resolver is unnecessary: FNA3D, FAudio and SDL2 are
+     statically linked and reached through direct P/Invoke, and the only branch
+     FNA needs on a static-AOT platform is the iOS/tvOS one, which does not
+     apply to libnx. Replacing the body with "return;" removes the entire XML
+     closure without patching FNA's source. -->
+<linker>
+  <assembly fullname="FNA">
+    <type fullname="Microsoft.Xna.Framework.FNADllMap">
+      <method signature="System.Void Microsoft.Xna.Framework.FNADllMap::Init()" body="stub" />
+    </type>
+  </assembly>
+</linker>

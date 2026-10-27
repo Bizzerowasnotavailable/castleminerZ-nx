@@ -1,0 +1,103 @@
+{
+  "schemaVersion": 1,
+  "gitDependencies": [
+    {
+      "name": "mono-nx",
+      "directory": "mono-nx",
+      "url": "https://github.com/exelix11/mono-nx.git",
+      "commit": "fec057748af9121d5cf363e772e817908d57c191",
+      "tag": "rel-3",
+      "recursive": true,
+      "license": "MIT"
+    },
+    {
+      "name": "FNA",
+      "directory": "FNA",
+      "url": "https://github.com/FNA-XNA/FNA.git",
+      "commit": "00498b0b81425b14bf8da23e68655215b9b5daa7",
+      "recursive": true,
+      "license": "Microsoft Public License"
+    },
+    {
+      "name": "FNA3D",
+      "directory": "FNA3D",
+      "url": "https://github.com/FNA-XNA/FNA3D.git",
+      "commit": "fd1b24671fb0f5d1b544cd7843d3ad9e80d92219",
+      "recursive": true,
+      "license": "zlib"
+    },
+    {
+      "name": "FAudio",
+      "directory": "FAudio",
+      "url": "https://github.com/FNA-XNA/FAudio.git",
+      "commit": "6839b88e304a046ae1a609ff14a085371e02a4e0",
+      "recursive": true,
+      "license": "zlib"
+    },
+    {
+      "name": "Mono.Cecil",
+      "directory": "mono-cecil",
+      "url": "https://github.com/jbevain/cecil.git",
+      "commit": "882ca5eedda1e62eb41bd5869aeb15d8f1538e51",
+      "recursive": true,
+      "license": "MIT"
+    }
+  ],
+  "archives": [
+    {
+      "name": "mono-nx SDK rel-3",
+      "file": "mono-nx-sdk-linux-x64.zip",
+      "url": "https://github.com/exelix11/mono-nx/releases/download/rel-3/mono-nx-sdk-linux-x64.zip",
+      "sha256": "3248d136503e50af337b0ba373771d471fb48a85bf777b5010e570f47de2c098",
+      "extractTo": "mono-nx-sdk-rel-3",
+      "requiredFiles": [
+        "dotnet_runtime/artifacts/bin/mono/linux.x64.Debug/cross/linux-x64/libnx-arm64/mono-aot-cross",
+        "dotnet_runtime/artifacts/obj/mono/libnx.arm64.Debug/out/lib/libmonosgen-2.0.a",
+        "icu/libnx/lib/libicuuc.a"
+      ]
+    },
+    {
+      "name": "mono-nx SD files rel-3",
+      "file": "mono-nx-sd-files.zip",
+      "url": "https://github.com/exelix11/mono-nx/releases/download/rel-3/sd_files.zip",
+      "sha256": "0df7a0ade0a367cddd190c932de7c09bb4d4bec085598bfda58e2d92eec4f625",
+      "extractTo": "mono-nx-sd-rel-3",
+      "requiredFiles": [
+        "mono/mono_nx.nro",
+        "switch/aot_example.nro"
+      ]
+    }
+  ],
+  "wslDotnet": {
+    "version": "9.0.320",
+    "file": "dotnet-sdk-9.0.320-linux-x64.tar.gz",
+    "url": "https://builds.dotnet.microsoft.com/dotnet/Sdk/9.0.320/dotnet-sdk-9.0.320-linux-x64.tar.gz",
+    "sha512": "eb371100b5c40641a812b3683bfda1772f0b69e5232091293c715d49eb837f52174b9b9a93375d692bddbfd1d57005f1a9aa774b4b30276665b0c0b1a9b66427",
+    "extractTo": "dotnet-9-linux"
+  },
+  "referenceProjects": [
+    {
+      "name": "MarathonRecomp",
+      "url": "https://github.com/sonicnext-dev/MarathonRecomp.git",
+      "commit": "a3a6380a254b067d6cecd96790a1d9b95da2aa03"
+    },
+    {
+      "name": "UnleashedRecomp",
+      "url": "https://github.com/hedge-dev/UnleashedRecomp.git",
+      "commit": "cf829a9eca8fb680fba4b0409ddeb6ca92f22e3c"
+    }
+  ],
+  "testedToolchain": {
+    "devkitA64": "r30-1",
+    "libnx": "4.12.0-1",
+    "cmake": "4.0.2-1",
+    "packages": [
+      "switch-sdl2",
+      "switch-sdl2_image",
+      "switch-mesa",
+      "switch-glad",
+      "switch-libdrm_nouveau",
+      "switch-openal-soft"
+    ]
+  }
+}
