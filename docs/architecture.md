@@ -88,11 +88,16 @@ routing across both targets, reference pruning, determinism, and idempotence.
   into a Mono interpreter. This minimizes generated artifacts and helps expose
   missing APIs, but performance and Switch executable-memory constraints must
   be evaluated.
-- **Static-AOT mode:** a user-side build pipeline extracts assemblies into an
-  ignored workspace, relinks them if necessary, invokes a Switch-capable Mono
-  AOT toolchain, and links the generated ARM64 objects into the NRO. Mono still
-  normally needs assembly metadata at runtime, so it should be supplied from
-  the user's package or private build output, not this repository.
+- **Static-AOT mode (current playable build):** `scripts/prepare-game.ps1`
+  extracts original assemblies from the user's supported package into an
+  external private workspace, relinks/trims them, invokes the Switch-capable
+  Mono AOT toolchain, and links generated ARM64 objects into a private NRO.
+  Mono loads the matching processed assembly metadata from
+  `sdmc:/switch/castleminerz/managed/`; the original package metadata is not
+  interchangeable with that output. Preparation collects the NRO, both
+  processed assemblies, package and hash manifest as a complete SD folder.
+  Runtime package-only preparation and a generic public game NRO are not
+  implemented. See [installation.md](installation.md).
 
 The available `mono-nx` static-AOT SDK is Linux-oriented. The validated build
 uses WSL for ILLink and `mono-aot-cross`, path-translating wrappers for the

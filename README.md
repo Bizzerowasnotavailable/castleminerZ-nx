@@ -17,6 +17,11 @@ item draw correctly; movement, the first-person camera, the pause menu and the
 mapped Switch controller input all work. Assets are read directly from the
 user's STFS package and are never copied into the NRO or RomFS.
 
+**Installation is a local source build, not a generic NRO plus a game rip.**
+The NRO needs matching processed `CastleMinerZ.exe` and `DNA.Common.dll` metadata
+on SD. Use the [package preparation workflow](docs/installation.md) below to
+generate all three from your own package; do not download the DLL separately.
+
 Verified in Eden:
 
 - title screen, offline world entry, and loading of existing save data;
@@ -83,22 +88,52 @@ managed IL AOT to ARM64 with an XNA compatibility runtime. See
 
 ## SD-card layout
 
-Copy your unmodified package to either location (the filename is arbitrary):
+After installing the [Windows/WSL build prerequisites](docs/installation.md), run:
 
-```text
-sdmc:/switch/castleminerz/game/<package>
-sdmc:/switch/castleminerz/game/584E07D2/00000002/<package>
+```powershell
+./scripts/prepare-game.ps1 -Package 'C:\Games\my-owned-package' -OutputRoot 'C:\CMZ-private\sd-ready'
 ```
 
-The NRO recursively searches `sdmc:/switch/castleminerz/game` and reads assets
-directly from the package. It does not copy game data into the NRO or RomFS.
+Supply the actual `LIVE`/STFS file, even if it has a long hexadecimal name and
+no extension. The script validates it, privately extracts the two assemblies,
+relinks/trims/AOT-compiles them and produces a **new, complete private SD folder**:
 
-The development game build additionally loads the user's privately relinked
-`CastleMinerZ.exe` and `DNA.Common.dll` from
-`sdmc:/switch/castleminerz/managed/`, never RomFS. Its generated game AOT code is
-private build output, not a distributable project-authored game executable.
+```text
+sd-ready/
+  switch/castleminerz.nro
+  switch/castleminerz/game/CastleMinerZ.stfs
+  switch/castleminerz/managed/CastleMinerZ.exe
+  switch/castleminerz/managed/DNA.Common.dll
+  switch/castleminerz/build-manifest.json
+```
+
+Copy the **entire `switch` folder** to your SD root, or into the SDMC directory
+of the destination Eden installation. Use **File → Open Eden Folder** to locate
+the active Eden data folder; portable installations need not use `%APPDATA%`.
+The destination PC does not need the build tools. Keep existing saves, but move
+old packages out of `switch/castleminerz/game/` so discovery cannot pick one.
+
+With the game/Eden closed, verify the destination after copying:
+
+```powershell
+./scripts/verify-game-install.ps1 -SdRoot 'C:\path\to\eden\sdmc'
+```
+
+The verifier checks SHA-256 hashes of the package, NRO and both processed
+assemblies against the build manifest. Do not mix builds or substitute the
+original extracted assemblies. A package-only copy is **not** an installation.
+See [installation and troubleshooting](docs/installation.md) for prerequisites,
+rebuilds and the missing-`DNA.Common.dll` error.
+
+Assets still stream directly from the unmodified package. Advanced/manual builds
+can use any package filename under `sdmc:/switch/castleminerz/game/` (including
+the original `584E07D2/00000002/` layout); the prepared workflow uses the fixed
+filename above so the transfer can be checked without machine-specific paths.
 
 ## Build the Switch bootstrap
+
+This builds the package-discovery bootstrap, **not the playable game**. For the
+game use `prepare-game.ps1`; runtime/graphics probes below are also diagnostics.
 
 Requirements:
 
@@ -178,6 +213,8 @@ graphics work is game-side.
   Mono AOT/FNA path.
 - [`docs/toolchain.md`](docs/toolchain.md) documents the pinned WSL/devkitPro
   runtime and native dependency builds.
+- [`docs/installation.md`](docs/installation.md) covers preparing your own
+  package, transferring the complete private build, and troubleshooting.
 - [`docs/graphics.md`](docs/graphics.md) records the deko3d-versus-switch-mesa
   decision and the evidence behind it.
 - [`docs/playability.md`](docs/playability.md) is the gate-by-gate plan to a
@@ -194,18 +231,24 @@ assemblies would redistribute copyrighted game code and assets. Share the
 source, scripts, and documentation instead; each user must supply their own
 package and build locally.
 
-For personal SD-card use, copy the NRO anywhere under `sdmc:/switch/` and keep:
+For personal use, transfer the complete output of `prepare-game.ps1`, not just
+the NRO. It includes your unmodified package, matching **processed** assemblies
+and a build manifest:
 
 ```text
-sdmc:/switch/castleminerz/game/<package>
+sdmc:/switch/castleminerz.nro
+sdmc:/switch/castleminerz/game/CastleMinerZ.stfs
 sdmc:/switch/castleminerz/managed/CastleMinerZ.exe
 sdmc:/switch/castleminerz/managed/DNA.Common.dll
+sdmc:/switch/castleminerz/build-manifest.json
 ```
 
 The NRO embeds a default runtime config and creates
 `sdmc:/switch/castleminerz-logs/` automatically, so no extra config file is
 required. An `aot_config.ini` in that folder overrides the embedded defaults for
-debugging. A clean-SD boot without any override was verified in Eden.
+debugging. A boot without the override was verified in Eden **with the required
+package and processed assemblies still present**; this was not an empty-SD or
+package-only installation test.
 
 On hardware, launch in **full application mode** (hold R while starting an
 installed game to open hbmenu), not from the album. The Mono runtime needs the

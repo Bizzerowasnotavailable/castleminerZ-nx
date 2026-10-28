@@ -28,6 +28,14 @@ XBLIG package.
   validate MojoShader parsing, GLSL ES 3 translation and interface contracts.
 - [x] Create a user-side private extraction/relink/AOT pipeline with checks that
   prevent proprietary outputs from entering source control.
+- [x] Add a package-input preparation command that collects a complete private
+  SD tree (NRO, matching processed assemblies, original package and manifest),
+  with synthetic transfer/failure tests and destination hash verification.
+- [x] Run the full package-input build and confirm the complete output loads
+  both assemblies and renders an offline world in isolated portable Eden on
+  the same PC (not a fresh-PC/hardware or save/load validation).
+- [ ] Validate preparation on a newly provisioned build PC and launch the
+  resulting complete installation on a second PC and physical Switch.
 
 ## M2 — managed runtime bring-up
 

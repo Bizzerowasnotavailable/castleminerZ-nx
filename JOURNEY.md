@@ -12,15 +12,21 @@ Build a playable Nintendo Switch port of CastleMiner Z using Xbox 360 GOD/STFS p
 
 ## Current Snapshot (October 2026)
 
-- **Status:** playable in Eden; physical Switch validation pending.
+- **Status:** locally prepared developer build playable in Eden; not a generic
+  NRO-plus-rip release. Physical Switch validation pending.
 - **Build:** private ARM64 NRO produced by the full relink/AOT pipeline
   (latest local SHA-256
   `DC00BCA5E1FA300BA3659F22C90F4A516F7778A82CFAC6CA538B1472A33BD7A3`).
 - **Verified:** title screen, offline world entry and save load, terrain,
   sky/clouds, water, HUD, hotbar icons, first-person held item, pause menu,
   movement/camera, mapped controller input, local-profile identity, and
-  UID-scoped saves. A clean-SD boot with no `aot_config.ini` override also
-  reaches the world flow.
+  UID-scoped saves. Boot with no `aot_config.ini` override also reaches the
+  world flow, but the package, processed managed files and saves remained
+  present; this was not an empty-SD/package-only installation test.
+- **Preparation:** `scripts/prepare-game.ps1` accepts the user's supported
+  package and produces a complete private SD folder with a matching NRO,
+  processed EXE/DLL, unmodified package and SHA-256 manifest. It no longer
+  assumes the user already has extracted/relinked files or this PC's Eden data.
 - **Open:** audio in Eden (the emulator's audren renderer never consumes SDL
   buffers), WMA streaming music, invisible third-person avatar body,
   inventory/combat/full save-cycle validation, and physical-hardware testing.
@@ -29,7 +35,8 @@ Build a playable Nintendo Switch port of CastleMiner Z using Xbox 360 GOD/STFS p
 - **Primary Code**: `castleminerZ-nx/` - Main Switch port framework
 - **Dependencies**: `%LOCALAPPDATA%\Temp\opencode\` - External dependencies and private build artifacts
 - **Assets**: Read directly from original package, no RomFS staging
-- **Managed Code**: `CastleMinerZ.exe` and `DNA.Common.dll` on SD under `switch\castleminerz\managed`
+- **Managed Code**: matching processed `CastleMinerZ.exe` and `DNA.Common.dll`
+  on SD under `switch\castleminerz\managed`, generated from the user's package
 
 ---
 
@@ -87,6 +94,9 @@ Build a playable Nintendo Switch port of CastleMiner Z using Xbox 360 GOD/STFS p
 - [x] STFS package VFS reading without extraction
 - [x] Host-side `cmztool` for package validation and extraction
 - [x] Deterministic private extraction/relink/AOT pipeline
+- [x] Package-to-install orchestration and portable complete SD output with
+      build manifest; verifier catches missing DLLs, mixed builds and old packages
+- [x] Synthetic preparation/transfer/failure regression tests (17 checks)
 
 ---
 
@@ -128,6 +138,50 @@ Build a playable Nintendo Switch port of CastleMiner Z using Xbox 360 GOD/STFS p
 
 ## Current Runtime State
 
+### Installation workflow correction (October 28, 2026)
+
+- A second-PC report exposed the incomplete manual installation instructions:
+  the user had the NRO/package but not the locally generated DNA assembly.
+- Both original assemblies are inside the user's STFS package. They must be
+  privately extracted, relinked, trimmed and paired with the AOT build; a raw
+  extracted DLL or arbitrary downloaded DNA DLL is not a fix.
+- Added `scripts/prepare-game.ps1`: validates the supported package, prepares
+  dependencies, extracts only EXE/DLL privately, runs the existing full build,
+  copies the unmodified package, and publishes only a complete verified SD tree.
+  Output stays outside Git, never overwrites an existing output directory and
+  never touches live Eden by default. Failed runs retain private diagnostics.
+- Added `scripts/verify-game-install.ps1`: checks NRO/package/processed-assembly
+  SHA-256/size pairing after transfer, rejects missing/mixed files and leftover
+  package files, and warns about SD config overrides. The manifest records no
+  machine-specific absolute paths and is not a publisher-authenticity signature.
+- `build-game.ps1` now accepts `-OutputDirectory` so preparation can collect the
+  NRO externally without replacing the previously working repository-root NRO.
+- Added `docs/installation.md` and corrected README/toolchain/architecture docs:
+  local source preparation is required, the destination PC needs no toolchain,
+  and no-override boot was not a clean-install test. No public game NRO, runtime
+  extraction/relinking, online authentication, or Nintendo Account was added.
+- Validation: real supported package → private extraction → relink/ILLink/AOT
+  → native NRO → verified SD folder completed on the existing build PC using
+  `-DependenciesReady`. The prepared NRO SHA-256 is
+  `BBDD7054EA75B7141363D3F9EBE9C723951EFF0CFB0A9716763A053AFC506259`;
+  the earlier repository-root NRO and live Eden managed files were not replaced.
+  All 17 synthetic checks pass, including default dependency-stage orchestration
+  and locked files; local-profile tests, dependency verification, PowerShell
+  syntax checks, repository guard and `git diff --check` also pass.
+- Transfer/runtime check: copied only the prepared `switch` tree into a new
+  portable Eden user directory on the same PC, retaining renderer/input settings
+  but no old package/managed files, keys, firmware, saves, or SD runtime override.
+  Host logs confirm both assemblies load from the new SDMC tree; Eden's native
+  screenshot confirms a rendered offline world with terrain, sky, HUD/hotbar
+  and held pickaxe. The destination manifest verifies after stopping Eden.
+  Desktop PrintWindow captures were black/menu-only, so native screenshot
+  evidence was used (private, outside Git).
+- Caveat: this isolated run also logged repeated `CreateDirs` errors for world
+  save paths under the deeply nested temporary portable directory. Windows path
+  length is suspected, not established; fresh-install save/load is not certified.
+  Newly provisioned build PC, actual second-PC runtime and physical Switch
+  validation remain pending. Test Eden was stopped; existing Eden was left alone.
+
 ### Eden Development Build
 - **Build**: private ARM64 NRO from the full relink/AOT pipeline
 - **SHA-256**:
@@ -146,7 +200,9 @@ Build a playable Nintendo Switch port of CastleMiner Z using Xbox 360 GOD/STFS p
   (includes AOT code; never committed)
 - **Graphics Probe**: `castleminerz-graphics-probe.nro`, ~6.3 MB
 - **Runtime Probe**: `castleminerz-runtime-probe.nro`, ~81.8 MB
-- **AOT Code**: `private/` directory in `%LOCALAPPDATA%\Temp\opencode\cmz-game-stage\native\aot\`
+- **AOT Code**: external `%LOCALAPPDATA%\Temp\opencode\castleminerz-deps\cmz-game-stage\native\aot\`
+- **Prepared Install**: `<Workspace>\prepared-sd\` by default, or the new
+  external `-OutputRoot`; transfer its entire `switch` folder, not just the NRO
 - **Logs**: `sdmc:/switch/castleminerz-logs/` directory
 
 ### Code Locations
@@ -160,6 +216,8 @@ Build a playable Nintendo Switch port of CastleMiner Z using Xbox 360 GOD/STFS p
 ## Next Moves (Phase 1: Gameplay Validation)
 
 ### Immediate Tasks
+0. **Installation Validation**: Exercise package preparation on a newly
+   provisioned PC, verify the transferred manifest and launch on a second PC
 1. **Hardware Validation**: Run the current NRO on a physical Switch and confirm
    rendering, input, audio, profile selection, and save/load
 2. **Audio System**: Choose a WMA policy (decoder, host-side transcode, or safe
@@ -296,6 +354,7 @@ Each gate defines concrete pass/fail conditions:
 ## References & Documentation
 
 ### Key Files
+- `docs/installation.md` - Package preparation, complete SD transfer and DLL troubleshooting
 - `docs/roadmap.md` - Engineering sequence and status tracking
 - `docs/playability.md` - Gate-by-gate playability plan
 - `docs/local-profiles.md` - Switch profile integration details
@@ -303,7 +362,11 @@ Each gate defines concrete pass/fail conditions:
 - `docs/architecture.md` - System design and constraints
 
 ### Build Scripts
-- `./scripts/build-switch.ps1` - Main build script
+- `./scripts/prepare-game.ps1` - Supported package to complete private game installation
+- `./scripts/verify-game-install.ps1` - Destination package/NRO/managed hash verification
+- `./scripts/test-game-preparation.ps1` - Synthetic preparation/transfer/error checks
+- `./scripts/build-game.ps1` - Lower-level private relink/trim/AOT/native game build
+- `./scripts/build-switch.ps1` - Package-discovery bootstrap only, not the playable game
 - `./scripts/setup-dependencies.ps1` - Host dependency management
 - `./scripts/test-local-profiles.ps1` - Profile system tests
 

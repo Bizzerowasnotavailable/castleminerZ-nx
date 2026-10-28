@@ -268,11 +268,39 @@ but invalid little-endian ranges before conversion.
 
 ## Private game build
 
+### Recommended: start with your own package
+
+Use the [preparation and installation guide](installation.md) for prerequisites
+and complete SD deployment:
+
+```powershell
+./scripts/prepare-game.ps1 -Package C:\path\to\owned-package -OutputRoot C:\CMZ-private\sd-ready
+./scripts/verify-game-install.ps1 -SdRoot C:\CMZ-private\sd-ready
+```
+
+This validates the package, extracts the original EXE/DLL privately, runs the
+full game build and collects the matching NRO, processed assemblies, unmodified
+package and hash manifest. It never stages files directly into live Eden and
+refuses an existing output folder. `-DependenciesReady` is for an already
+provisioned build workspace only; it still runs the full game compilation.
+
+The NRO alone, or NRO plus package, is not sufficient. Original extracted
+assemblies cannot substitute for the exact processed assemblies paired with
+the NRO's AOT code. The complete prepared output remains private.
+
+### Advanced: already extracted assemblies
+
 With privately extracted original assemblies available outside the repository:
 
 ```powershell
 ./scripts/build-game.ps1 -ManagedSource C:\path\to\private\584E07D1
 ```
+
+This lower-level command retains its development defaults: it writes the NRO
+to the repository root (ignored) and stages the processed assemblies into
+`%APPDATA%\eden\sdmc` if present. Override `-OutputDirectory` and `-SdRoot` to
+isolate those outputs. It does not create a complete installation/manifest or
+copy the original package; prefer `prepare-game.ps1` for installation.
 
 Close Eden before replacing the NRO: Windows keeps the running image open.
 If only the final copy fails, the completed NRO remains in the external

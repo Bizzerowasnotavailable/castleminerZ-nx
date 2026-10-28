@@ -3,7 +3,8 @@ param(
     [string]$DevkitPro = "C:\devkitPro",
     [string]$Workspace = (Join-Path $env:LOCALAPPDATA "Temp\opencode\castleminerz-deps"),
     [string]$ManagedSource = (Join-Path $env:LOCALAPPDATA "Temp\opencode\castleminerz-analysis\game-extracted\584E07D1"),
-    [string]$SdRoot = (Join-Path $env:APPDATA "eden\sdmc")
+    [string]$SdRoot = (Join-Path $env:APPDATA "eden\sdmc"),
+    [string]$OutputDirectory = (Split-Path -Parent $PSScriptRoot)
 )
 
 # Builds a development NRO that runs the user's CastleMiner Z package through
@@ -344,7 +345,8 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 # RomFS holds only project/runtime files: the framework, the real FNA, the
-# compatibility assembly, ICU and the config. Game code stays on the SD card.
+# compatibility assembly, ICU and the config. Game IL stays on the SD card;
+# game AOT machine code is linked into this private NRO.
 $romfs = Join-Path $stageAot 'romfs'
 if (Test-Path -LiteralPath $romfs) {
     Remove-Item -LiteralPath $romfs -Recurse -Force
@@ -446,7 +448,8 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 $stageNro = Join-Path $stageAot 'castleminerz.nro'
-$outputNro = Join-Path $repo 'castleminerz.nro'
+New-Item -ItemType Directory -Force -Path $OutputDirectory | Out-Null
+$outputNro = Join-Path $OutputDirectory 'castleminerz.nro'
 Copy-Item -LiteralPath $stageNro -Destination $outputNro -Force
 
 $sdManaged = Join-Path $SdRoot 'switch\castleminerz\managed'
