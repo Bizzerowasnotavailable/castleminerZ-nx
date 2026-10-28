@@ -54,6 +54,16 @@ Check("Avatar remains a valid project placeholder", avatar1.IsValid && avatar2.I
 if (selected)
     Check("Local placeholder is stable across gamer APIs", avatar1.Description.SequenceEqual(avatar2.Description));
 
+using (var renderer = new AvatarRenderer(avatar1))
+{
+    Check("Avatar renderer reports Unavailable so the game uses its own fallback skeleton",
+        renderer.State == AvatarRendererState.Unavailable);
+    Check("Avatar renderer keeps the 71-bone API shape", renderer.BindPose.Count == 71 && renderer.ParentBones.Count == 71);
+    renderer.Draw(Enumerable.Repeat(Matrix.Identity, 71).ToArray(), default);
+    Check("Avatar renderer rejects torn bone buffers",
+        Throws<ArgumentException>(() => renderer.Draw(new Matrix[70], default)));
+}
+
 Console.WriteLine($"PASS: {args[0]} local-profile integration");
 return;
 
@@ -65,6 +75,14 @@ static byte[] Read(Stream stream)
 }
 
 static bool IsPng(byte[] bytes) => bytes.AsSpan().StartsWith(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 });
+
+static bool Throws<T>(Action action)
+    where T : Exception
+{
+    try { action(); }
+    catch (T) { return true; }
+    return false;
+}
 
 static void Check(string name, bool valid)
 {

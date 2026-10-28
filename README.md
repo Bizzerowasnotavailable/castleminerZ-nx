@@ -10,41 +10,62 @@ porting framework for the Xbox Live Indie Games release of **CastleMiner Z**.
 
 ## Current status
 
-**Offline world milestone; not yet validated as playable.** The project currently:
+**Playable in Eden; physical-hardware validation pending.** CastleMiner Z boots
+to its title screen, enters and loads an offline world, and renders the complete
+first-person scene. Terrain, sky, clouds, water, HUD, hotbar icons and the held
+item draw correctly; movement, the first-person camera, the pause menu and the
+mapped Switch controller input all work. Assets are read directly from the
+user's STFS package and are never copied into the NRO or RomFS.
 
-- builds a real ARM64 `.nro` with devkitA64/libnx;
-- finds a user-provided STFS package on the SD card;
-- exposes its file table through a read-only package VFS without installing or
-  embedding game assets;
-- verifies the expected managed assemblies and representative XNA assets;
-- provides a host-side `cmztool` for listing, validating, and privately
-  extracting individual files;
-- provides a project-owned `CastleMinerZ.XnaCompat` assembly that covers the
+Verified in Eden:
+
+- title screen, offline world entry, and loading of existing save data;
+- generated terrain, sky/clouds, water, HUD, hotbar icons, and first-person held
+  items;
+- first-person camera, movement, and pause menu;
+- local Switch profile nickname/picture with UID-scoped storage, no linked
+  Nintendo Account; and
+- mapped controller input (Nintendo labels: A=accept, B=back).
+
+Known limitations:
+
+- **Player body:** the third-person avatar body is invisible. Xbox avatar assets
+  cannot be shipped; reporting the renderer as `Unavailable` keeps the game's own
+  fallback skeleton, which preserves held-item, eye-point and animation
+  transforms. The local profile supplies nickname/picture metadata only; no Mii
+  geometry is read or rendered. A project-authored placeholder body is future
+  work.
+- **Audio:** FNA/FAudio and the XACT bank loader are linked, and the sound-effect
+  bank is PCM. The 11 streaming music entries are WMA, which the current Switch
+  FAudio build does not decode. Eden's audren renderer also never consumes SDL
+  wave buffers (a standalone SDL tone gets one callback and then blocks), so no
+  SDL audio can be heard in Eden. Hardware audio validation and a WMA policy
+  remain open.
+- **Validation:** inventory, combat, and a full power-cycle save/load test still
+  need complete passes; no physical Switch run has been completed.
+- **Behavior note:** brief full-sky white flashes are the game's original
+  `drawLightning` storm effect (10–40 s cadence above ground), not a corrupted
+  cubemap.
+
+The project also provides:
+
+- a real ARM64 `.nro` built with devkitA64/libnx;
+- recursive STFS package discovery and a read-only package VFS without
+  installing or embedding game assets;
+- a host-side `cmztool` for listing, validating, and privately extracting
+  individual files;
+- a project-owned `CastleMinerZ.XnaCompat` assembly that covers the
   GamerServices, networking, and avatar surface FNA omits;
-- deterministically relinks privately extracted game assemblies onto FNA plus
-  that compatibility assembly, with every type and member verified;
-- links the full native graphics stack (SDL2 → EGL → switch-mesa GLES 3.0 →
-  FNA3D → MojoShader) into a 6.3 MB native hardware probe NRO;
-- runs FNA itself inside the Mono static-AOT image: the managed probe creates a
-  real `GraphicsDevice`, clears and presents 240 frames, attempts a
-  `SpriteBatch` draw, and links the same FNA3D/Mesa/FAudio archives with no
+- a deterministic relinker that routes every legacy XNA type and member onto FNA
+  or the compatibility assembly;
+- the full native stack (SDL2 → EGL → switch-mesa GLES 3.0 → FNA3D →
+  MojoShader, plus FAudio) linked into the Mono static-AOT image with no
   undefined symbols;
-- runs the user's relinked, statically AOT-compiled game in Eden, passes player
-  loading, and enters an offline world with terrain, sky and HUD rendering, while
-  reading assets directly through the STFS filesystem;
-- builds ten project-authored replacement effects for the Xbox GPU binaries,
-  with MojoShader GLSL ES 3 translation and interface tests;
-- corrects Xbox cubemap and raw model-buffer byte order: the sky, hotbar item
-  icons and held models now render in Eden; and
-- maps the selected local Switch user's nickname and picture onto the offline
-  gamer API, with UID-scoped storage and no linked Nintendo Account requirement
+- ten project-authored replacement effects for the Xbox GPU binaries, with
+  MojoShader GLSL ES 3 translation and interface tests;
+- Xbox cubemap and raw model-buffer byte-order fixes, verified in Eden; and
+- the local-profile integration described above
   (see [`docs/local-profiles.md`](docs/local-profiles.md)).
-
-**Current runtime work:** finish avatar/held-item poses and validate inventory,
-combat, audio, and save/load. Hardware, account-selector, and complete gameplay
-validation remain outstanding.
-
-**Eden status (Oct 2026):** The game is now somewhat playable — it enters an offline world with terrain, sky, HUD, hotbar icons, and held models rendering correctly. The procedural 71-bone avatar mesh is implemented (stick-figure rig matching `AvatarBone` enum) so held-item pose transforms work; actual mesh rendering still needs GraphicsDevice integration. Gameplay remains buggy: inventory, combat, audio, and save/load still need full testing. No physical hardware run completed yet.
 
 The graphics backend is settled: switch-mesa behind SDL2, not deko3d. deko3d
 has no FNA3D driver in any public tree, so using it now would mean writing a

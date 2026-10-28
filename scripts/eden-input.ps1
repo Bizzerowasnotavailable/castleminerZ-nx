@@ -2,7 +2,9 @@
 param(
     [Parameter(Mandatory)][int]$ProcessId,
     [ValidateSet('Start', 'Accept', 'Back', 'Up', 'Down', 'Left', 'Right',
-        'Forward', 'Backward', 'StrafeLeft', 'StrafeRight')]
+        'Forward', 'Backward', 'StrafeLeft', 'StrafeRight',
+        'Jump', 'Inventory', 'Attack', 'Use', 'PreviousItem', 'NextItem',
+        'Activate', 'Reload', 'Players', 'LStick', 'RStick')]
     [string[]]$Key = @(),
     [ValidateRange(50, 2000)][int]$HoldMilliseconds = 50,
     [ValidateRange(200, 5000)][int]$IntervalMilliseconds = 1000,
@@ -12,8 +14,9 @@ param(
 
 # Drive only an existing CastleMiner Z Eden window. This does not launch an
 # emulator, change its configuration, or capture the Windows desktop. The keys
-# match the development keyboard mapping: M=Plus, C=A, X=B, arrows=d-pad,
-# and WASD=left stick.
+# match the development keyboard mapping: M=Plus, N=Minus, C=A, X=B, V=X, Z=Y,
+# Q=L, E=R, R=ZL, T=ZR, arrows=d-pad, and WASD=left stick. In-game action names
+# use the Xbox button the game reads after the port's Nintendo-label mapping.
 $ErrorActionPreference = 'Stop'
 $process = Get-Process -Id $ProcessId -ErrorAction Stop
 if ($process.ProcessName -ne 'eden' -or $process.MainWindowHandle -eq [IntPtr]::Zero -or
@@ -30,13 +33,37 @@ public static class CmzEdenInput {
     [DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr window, int command);
     [DllImport("user32.dll")] public static extern uint MapVirtualKey(uint key, uint mapping);
     [DllImport("user32.dll")] public static extern void keybd_event(byte key, byte scan, uint flags, UIntPtr extra);
+    [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr window, IntPtr processId);
+    [DllImport("user32.dll")] public static extern bool AttachThreadInput(uint attach, uint attachTo, bool set);
+    [DllImport("kernel32.dll")] public static extern uint GetCurrentThreadId();
 }
 '@
 }
-[void][CmzEdenInput]::ShowWindowAsync($process.MainWindowHandle, 9)
-[void][CmzEdenInput]::SetForegroundWindow($process.MainWindowHandle)
-Start-Sleep -Milliseconds 200
-if ([CmzEdenInput]::GetForegroundWindow() -ne $process.MainWindowHandle) {
+function Set-CmzEdenForeground {
+    param([IntPtr]$Window)
+    [void][CmzEdenInput]::ShowWindowAsync($Window, 9)
+    for ($attempt = 0; $attempt -lt 3; $attempt++) {
+        [void][CmzEdenInput]::SetForegroundWindow($Window)
+        if ([CmzEdenInput]::GetForegroundWindow() -eq $Window) { return $true }
+        # Windows only lets the foreground process change focus; temporarily
+        # attach to the current foreground thread to satisfy that rule.
+        $foreground = [CmzEdenInput]::GetForegroundWindow()
+        $foregroundThread = [CmzEdenInput]::GetWindowThreadProcessId($foreground, [IntPtr]::Zero)
+        $currentThread = [CmzEdenInput]::GetCurrentThreadId()
+        if ($foregroundThread -ne 0 -and $foregroundThread -ne $currentThread -and
+            [CmzEdenInput]::AttachThreadInput($currentThread, $foregroundThread, $true)) {
+            try {
+                [void][CmzEdenInput]::SetForegroundWindow($Window)
+            } finally {
+                [void][CmzEdenInput]::AttachThreadInput($currentThread, $foregroundThread, $false)
+            }
+        }
+        Start-Sleep -Milliseconds 200
+        if ([CmzEdenInput]::GetForegroundWindow() -eq $Window) { return $true }
+    }
+    return $false
+}
+if (-not (Set-CmzEdenForeground -Window $process.MainWindowHandle)) {
     Add-Type -AssemblyName UIAutomationClient
     [System.Windows.Automation.AutomationElement]::FromHandle($process.MainWindowHandle).SetFocus()
     Start-Sleep -Milliseconds 200
@@ -45,7 +72,11 @@ if ([CmzEdenInput]::GetForegroundWindow() -ne $process.MainWindowHandle) {
     }
 }
 $keys = @{ Start = 0x4d; Accept = 0x43; Back = 0x58; Up = 0x26; Down = 0x28; Left = 0x25; Right = 0x27;
-    Forward = 0x57; Backward = 0x53; StrafeLeft = 0x41; StrafeRight = 0x44 }
+    Forward = 0x57; Backward = 0x53; StrafeLeft = 0x41; StrafeRight = 0x44;
+    # Xbox actions after Nintendo-label mapping. Eden keyboard codes in parentheses.
+    Jump = 0x43; Inventory = 0x5a; Attack = 0x52; Use = 0x54;
+    PreviousItem = 0x51; NextItem = 0x45; Activate = 0x58; Reload = 0x56;
+    Players = 0x4e; LStick = 0x46; RStick = 0x47 }
 foreach ($name in $Key) {
     if ([CmzEdenInput]::GetForegroundWindow() -ne $process.MainWindowHandle) {
         throw 'Eden lost focus; remaining keys were not sent.'

@@ -87,3 +87,8 @@ explicitly before `FNA3D_PrepareWindowAttributes()`.
 If that NRO presents correctly, the entire SDL2/Mesa/FNA3D path is proven on
 hardware and the remaining graphics work is game-side (Effects, render states,
 textures), not platform-side.
+
+The game-side path is now verified in Eden: the title screen, terrain, sky,
+water, HUD, hotbar icons, first-person held item and pause menu all render with
+the project-authored effects and Xbox cubemap/model byte-order fixes. Physical
+hardware confirmation of the probe is still pending.

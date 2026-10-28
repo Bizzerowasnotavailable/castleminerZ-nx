@@ -68,7 +68,7 @@ XBLIG package.
   record the GL vendor/renderer/version, device result and frame rate.
 - [x] Implement the STFS devoptab so `File`/`ContentManager` read the package
   directly.
-- [ ] Implement the graphics resources and render states needed by startup.
+- [x] Implement the graphics resources and render states needed by startup.
 - [x] Compile and load the initial project-authored replacement effects in Eden.
 - [x] Load startup textures, fonts and models directly from the package in Eden.
 - [x] Reach the title screen in Eden.
@@ -76,10 +76,15 @@ XBLIG package.
 - [x] Correct Xbox cubemap byte order and verify sky rendering in Eden.
 - [x] Verify corrected Xbox model vertex/index uploads in a running world:
   hotbar icons and held models render in Eden.
+- [x] Confirm first-person held-item placement in Eden with the game's fallback
+  avatar skeleton (correct lower-right pose, not attached to the head).
 
 ## M4 — offline gameplay
 
 - [ ] Implement XACT global settings, sound banks, wave banks, and streaming.
+  PCM SFX banks are linked; the 11 WMA streaming entries need a decoder,
+  host-side transcode, or an explicit silence policy. Eden's audren renderer
+  cannot play any SDL audio, so hardware validation is required.
 - [x] Map the selected local Switch profile's nickname, picture and UID-scoped
   storage onto the offline gamer APIs without requiring a Nintendo Account.
 - [ ] Validate profile selection and save/load on hardware; implement real
@@ -87,8 +92,10 @@ XBLIG package.
 - [ ] Implement the local `NetworkSession` behavior assumed by game logic.
 - [ ] Implement a legally distributable avatar replacement renderer and map the
   packaged animation data.
-- [ ] Correct first-person held-item poses with the replacement avatar rig.
-- [x] Enter an offline world in Eden and render generated terrain, sky and HUD.
+- [x] Keep first-person held-item poses correct using the game's fallback bind
+  pose (no Xbox avatar rig required).
+- [x] Enter an offline world in Eden and render generated terrain, sky, water,
+  HUD, hotbar icons and held items.
 - [ ] Validate chunk workers, inventory, entities, combat, saving, and loading.
 - [ ] Profile memory and frame time on retail-frequency Switch hardware.
 

@@ -10,6 +10,20 @@ An experimental Nintendo Switch homebrew interoperability and static-AOT porting
 ## Objective
 Build a playable Nintendo Switch port of CastleMiner Z using Xbox 360 GOD/STFS package without redistributing game assets, mapping Xbox gamer identity to Switch's regular local user profile without Nintendo Account linking.
 
+## Current Snapshot (October 2026)
+
+- **Status:** playable in Eden; physical Switch validation pending.
+- **Build:** private ARM64 NRO produced by the full relink/AOT pipeline
+  (latest local SHA-256
+  `DC00BCA5E1FA300BA3659F22C90F4A516F7778A82CFAC6CA538B1472A33BD7A3`).
+- **Verified:** title screen, offline world entry and save load, terrain,
+  sky/clouds, water, HUD, hotbar icons, first-person held item, pause menu,
+  movement/camera, mapped controller input, local-profile identity, and
+  UID-scoped saves.
+- **Open:** audio in Eden (the emulator's audren renderer never consumes SDL
+  buffers), WMA streaming music, invisible third-person avatar body,
+  inventory/combat/full save-cycle validation, and physical-hardware testing.
+
 ## Project Structure
 - **Primary Code**: `castleminerZ-nx/` - Main Switch port framework
 - **Dependencies**: `%LOCALAPPDATA%\Temp\opencode\` - External dependencies and private build artifacts
@@ -23,7 +37,7 @@ Build a playable Nintendo Switch port of CastleMiner Z using Xbox 360 GOD/STFS p
 ### Graphics Stack
 - **Backend**: SDL2 → EGL → switch-mesa GLES 3.0 → FNA3D OpenGL
 - **Rationale**: Mesa is the only FNA3D backend available on Switch; deko3d driver not in any public tree
-- **Decision**: FNA3D with Mojoshador shader conversion for Xbox effects
+- **Decision**: FNA3D with MojoShader shader conversion for Xbox effects
 
 ### Runtime
 - **Mono**: `mono-nx rel-3` static AOT with 16,384 corlib trampolines
@@ -53,7 +67,10 @@ Build a playable Nintendo Switch port of CastleMiner Z using Xbox 360 GOD/STFS p
 - [x] FNA3D + Mesa + SDL2 native stack integration
 - [x] Ten project-authored replacement effects with MojoShader verification
 - [x] Hotbar item icons and held models now render correctly
+- [x] First-person held item renders in the correct lower-right pose using the
+      game's fallback avatar skeleton (verified in Eden)
 - [x] Xbox custom effects compiled and pass MojoShader/interface checks
+- [x] Title screen, terrain, sky/clouds, water, HUD and pause menu render in Eden
 
 #### Runtime & Compatibility
 - [x] mono-nx static AOT setup with proper trampoline allocation
@@ -75,14 +92,18 @@ Build a playable Nintendo Switch port of CastleMiner Z using Xbox 360 GOD/STFS p
 ### 🔄 ACTIVE (Ongoing Work)
 
 #### Debugging & Refinement
-- [x] Avatar mesh implemented (procedural 71-bone stick-figure rig with correct bone hierarchy)
-- [x] Bone transform pipeline wired in AvatarRenderer.Draw()
-- [ ] Held-item poses fully validated (bone transforms available, rendering integration pending GraphicsDevice access)
+- [x] AvatarRenderer always reports `Unavailable` so `DNA.Avatars.Avatar` keeps its built-in `DefaultBindPose`/`DefaultParentBones` fallback instead of rebuilding the skeleton from placeholder identity transforms
+- [x] Removed the unused placeholder mesh/identity-bone path that collapsed animation, eye-point, and held-item transforms onto the origin
+- [x] Confirmed first-person held-item placement in Eden: the tool is anchored at
+      the lower-right of the view, not on the player's head
+- [ ] Player body still invisible (no Xbox avatar assets; placeholder mesh rendering is future work)
 
 #### Gameplay Features
 - [ ] Inventory system testing
 - [ ] Combat system validation
-- [ ] Audio system testing (XACT/FAudio integration)
+- [ ] Audio system testing (XACT/FAudio integration) — PCM SFX bank supported;
+      11 WMA streaming entries unsupported by the Switch FAudio build; Eden's
+      audren renderer blocks all SDL playback; hardware validation pending
 - [ ] Camera/recording for item placement
 
 #### Platform Integration
@@ -107,14 +128,23 @@ Build a playable Nintendo Switch port of CastleMiner Z using Xbox 360 GOD/STFS p
 ## Current Runtime State
 
 ### Eden Development Build
-- **PID**: 10436
+- **Build**: private ARM64 NRO from the full relink/AOT pipeline
+- **SHA-256**:
+  `DC00BCA5E1FA300BA3659F22C90F4A516F7778A82CFAC6CA538B1472A33BD7A3`
 - **Framework**: FNA 3.1 with mono-nx static AOT
 - **Graphics**: SDL2 → switch-mesa GLES 3.0 → FNA3D OpenGL
+- **Rendering verified**: title screen, offline world, terrain, sky, water, HUD,
+  hotbar icons, held item, pause menu
+- **Input verified**: mapped Switch controller input, first-person camera and
+  movement
 - **Package**: STFS VFS mounted at `cmz:/`
 - **Profile**: Local Switch user selected (nickname, picture, UID storage)
 
 ### Build Outputs
-- **NRO Size**: ~6.3 MB (runtime-probe native)
+- **Game NRO**: `castleminerz.nro`, 97.5 MB in the local private build
+  (includes AOT code; never committed)
+- **Graphics Probe**: `castleminerz-graphics-probe.nro`, ~6.3 MB
+- **Runtime Probe**: `castleminerz-runtime-probe.nro`, ~81.8 MB
 - **AOT Code**: `private/` directory in `%LOCALAPPDATA%\Temp\opencode\cmz-game-stage\native\aot\`
 - **Logs**: `sdmc:/switch/castleminerz-logs/` directory
 
@@ -129,11 +159,16 @@ Build a playable Nintendo Switch port of CastleMiner Z using Xbox 360 GOD/STFS p
 ## Next Moves (Phase 1: Gameplay Validation)
 
 ### Immediate Tasks
-1. **Fix Held-Item Poses**: Implement proper avatar mesh rig for correct item placement
-2. **Avatar Mesh**: Replace placeholder with actual avatar mesh rendering
-3. **Inventory System**: Complete inventory implementation and testing
-4. **Combat System**: Validate combat mechanics and entity interactions
-5. **Audio System**: Test XACT sound banks and streaming
+1. **Hardware Validation**: Run the current NRO on a physical Switch and confirm
+   rendering, input, audio, profile selection, and save/load
+2. **Audio System**: Choose a WMA policy (decoder, host-side transcode, or safe
+   silence), then validate PCM SFX and music on hardware
+3. **Player Visibility**: Prototype a project-authored placeholder body driven by
+   the fallback skeleton (no Xbox avatar assets)
+4. **Inventory System**: Complete inventory implementation and testing
+5. **Combat System**: Validate combat mechanics and entity interactions
+6. **Save/Load Cycle**: Confirm saves survive a full power cycle and remain
+   profile-isolated
 
 ### Platform Validation
 1. **Hardware Testing**: Run on physical Switch hardware
@@ -166,6 +201,22 @@ Build a playable Nintendo Switch port of CastleMiner Z using Xbox 360 GOD/STFS p
 - **Texture Formats**: DXT compression via switch-mesa
 - **Cubemap Fix**: Color/BGRA and DXT1/3/5 conversion applied
 - **Model Buffers**: Big-endian vertex/index byte-swapped
+
+### Audio Findings (October 2026)
+- **Banks parsed**: `Sounds.xwb` contains 127 PCM entries;
+  `SoundsStreaming.xwb` contains 11 WMA entries (format tag 3).
+- **Switch FAudio**: the linked FAudio build has no `HAVE_WMADEC`, so the
+  streaming music cannot be decoded as-is.
+- **Eden blocker**: SDL opens the `switch` audio driver at 48 kHz stereo S16,
+  but the emulator's audren renderer never transitions the wave buffer from
+  `Queued` to `Playing`. `SWITCHAUDIO_PlayDevice` then spins in
+  `audrenWaitFrame`.
+- **Proof it is not the port**: a standalone SDL tone NRO receives exactly one
+  audio callback and then blocks; loopback capture is silent. No SDL-based
+  homebrew can produce sound in this Eden build.
+- **Safety**: never open or play an audio device in the native host before Mono
+  starts. A test device open hangs `SDL_CloseAudioDevice` and freezes startup.
+  The host now logs SDL version/driver information only.
 
 ### Build Configuration
 ```cpp
@@ -221,7 +272,8 @@ Environment Variables:
 - **Native Probe**: `castleminerz-runtime-probe.nro` (6.3 MB)
 - **Graphics Probe**: FNA3D/GL diagnostics
 - **Managed Probe**: GraphicsDevice creation and 240-frame test
-- **Eden Tests**: Offline world entry with terrain, sky, HUD
+- **Eden Tests**: Offline world entry and save load with terrain, sky, water,
+  HUD, hotbar icons, first-person held item, and pause menu
 
 ### Exit Criteria
 Each gate defines concrete pass/fail conditions:
@@ -255,21 +307,43 @@ Each gate defines concrete pass/fail conditions:
 ## Current Limitations
 
 ### Known Issues
-- **Avatar Rendering**: Placeholder mesh with no real rig
-- **Held-Item Poses**: Incorrect due to placeholder avatar
-- **Hardware Testing**: No physical Switch validation completed
-- **Performance**: switch-mesa CPU overhead may limit frame rate
+- **Avatar Rendering**: No third-person player body mesh; the game's fallback
+  skeleton is used for transforms. First-person held items and the camera are
+  correct. The local profile supplies nickname/picture metadata only; Mii
+  geometry is not read or rendered.
+- **Audio in Eden**: Eden's audren renderer never consumes SDL wave buffers, so
+  no SDL-based game can produce sound in the emulator. PCM SFX are supported by
+  the linked FAudio build; the 11 streaming WMA entries are not.
+- **Hardware Testing**: No physical Switch validation completed.
+- **Eden Host Stability**: one host-side `ucrtbase.dll` crash
+  (`0xc0000409`) occurred after an extended session that had rendered normally;
+  it is not reproduced reliably and is treated as an emulator issue until
+  isolated.
+- **Performance**: switch-mesa CPU overhead may limit frame rate on retail
+  hardware; Eden measurements are not representative.
+- **Lightning Flashes**: brief full-sky white flashes are the game's original
+  `drawLightning` storm behavior (10–40 s cadence above ground), not a corrupted
+  skybox.
 
 ### Unaddressed Items
 - deko3d FNA3D driver implementation (post-playable optimization)
 - Full multiplayer networking (single-player focus)
 - Complete graphics/effect parity validation
-- Advanced gameplay feature testing
+- Inventory, combat, and full power-cycle save/load validation
+- WMA streaming music policy and hardware audio validation
 
 ---
 
 ## Conclusion
-The project has successfully built a functional framework for running CastleMiner Z on Nintendo Switch using static-AOT Mono and FNA, with offline world entry, basic gameplay, and local profile integration working. The main remaining challenges are avatar implementation, held-item pose correction, and hardware validation.
+The project has successfully built a functional framework for running CastleMiner
+Z on Nintendo Switch using static-AOT Mono and FNA. In Eden the game boots to the
+title screen, loads an offline world, and renders terrain, sky, water, HUD,
+hotbar icons, and the first-person held item correctly; movement, camera, pause
+menu, mapped controller input, local-profile identity, and UID-scoped saves work.
+The main remaining challenges are audio (emulator and WMA limits), the invisible
+third-person avatar body, and validation on physical hardware.
 
-**Status**: Framework complete, gameplay partially playable, hardware validation pending.
-**Next Focus**: Avatar mesh implementation and held-item pose correction.
+**Status**: Playable in Eden with correct rendering; physical-hardware validation
+pending.
+**Next Focus**: Hardware validation, audio policy, and a project-authored avatar
+body.

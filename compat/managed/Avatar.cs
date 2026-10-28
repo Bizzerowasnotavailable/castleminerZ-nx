@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using CastleMinerZ.XnaCompat;
+using Microsoft.Xna.Framework;
 
 namespace Microsoft.Xna.Framework.GamerServices;
 
@@ -190,12 +191,36 @@ public sealed class AvatarDescription
 public sealed class AvatarRenderer : IDisposable
 {
     private const int BoneCount = 71;
+
+    // This port has no Xbox avatar service, avatar asset pipeline, or avatar
+    // GPU mesh. Reporting Ready here would make DNA.Avatars.Avatar rebuild its
+    // skeleton from these placeholder transforms, collapsing every bone onto
+    // the origin and breaking held-item placement and the eye-point camera.
+    //
+    // Unavailable selects the game's own built-in fallback skeleton
+    // (Avatar.DefaultBindPose/DefaultParentBones), which keeps animation,
+    // body-part, and held-item transforms coherent without Xbox avatar data.
     private static readonly ReadOnlyCollection<Matrix> bindPose =
         Array.AsReadOnly(Enumerable.Repeat(Matrix.Identity, BoneCount).ToArray());
     private static readonly ReadOnlyCollection<int> parentBones =
         Array.AsReadOnly(Enumerable.Repeat(-1, BoneCount).ToArray());
 
     private bool disposed;
+
+    public AvatarRenderer(AvatarDescription description)
+        : this(description, true)
+    {
+    }
+
+    public AvatarRenderer(AvatarDescription description, bool useLoadingEffect)
+    {
+        ArgumentNullException.ThrowIfNull(description);
+        // Always use the game's built-in fallback skeleton. A Ready renderer
+        // would rebuild the skeleton from the placeholder identity bind pose,
+        // collapsing every bone onto the origin and placing held items over
+        // the player's head.
+        State = AvatarRendererState.Unavailable;
+    }
 
     public AvatarRendererState State { get; }
 
@@ -215,108 +240,19 @@ public sealed class AvatarRenderer : IDisposable
 
     public Vector3 LightDirection { get; set; }
 
-    private readonly VertexPositionNormalTexture[] vertices;
-    private readonly ushort[] indices;
-
-    public AvatarRenderer(AvatarDescription description)
-        : this(description, true)
-    {
-    }
-
-    public AvatarRenderer(AvatarDescription description, bool useLoadingEffect)
-    {
-        ArgumentNullException.ThrowIfNull(description);
-        State = description.IsValid
-            ? AvatarRendererState.Ready
-            : AvatarRendererState.Unavailable;
-
-        if (!description.IsValid)
-        {
-            vertices = Array.Empty<VertexPositionNormalTexture>();
-            indices = Array.Empty<ushort>();
-            return;
-        }
-
-        // Build a minimal procedural humanoid avatar mesh with 71 bones matching
-        // the AvatarBone enum layout. The mesh is a wireframe stick figure that
-        // allows the held-item pose system to compute correct bone transforms.
-        int boneCount = BoneCount;
-        vertices = new VertexPositionNormalTexture[boneCount * 4];
-        indices = new ushort[boneCount * 6];
-
-        float legLength = 0.65f;
-        float torsoHeight = 0.4f;
-
-        Action<int, float, float, float> addBone = (boneIdx, x, y, z) => {
-            int baseIdx = boneIdx * 4;
-            vertices[baseIdx + 0] = new VertexPositionNormalTexture(
-                new Vector3(x - 0.02f, y - 0.02f, z - 0.02f), Vector3.Up, new Vector2(0, 0));
-            vertices[baseIdx + 1] = new VertexPositionNormalTexture(
-                new Vector3(x + 0.02f, y - 0.02f, z - 0.02f), Vector3.Up, new Vector2(1, 0));
-            vertices[baseIdx + 2] = new VertexPositionNormalTexture(
-                new Vector3(x - 0.02f, y + 0.02f, z - 0.02f), Vector3.Up, new Vector2(0, 1));
-            vertices[baseIdx + 3] = new VertexPositionNormalTexture(
-                new Vector3(x + 0.02f, y + 0.02f, z - 0.02f), Vector3.Up, new Vector2(1, 1));
-            
-            int tIdx = boneIdx * 6;
-            indices[tIdx + 0] = (ushort)baseIdx;
-            indices[tIdx + 1] = (ushort)(baseIdx + 1);
-            indices[tIdx + 2] = (ushort)(baseIdx + 2);
-            indices[tIdx + 3] = (ushort)(baseIdx + 2);
-            indices[tIdx + 4] = (ushort)(baseIdx + 1);
-            indices[tIdx + 5] = (ushort)(baseIdx + 3);
-        };
-
-        addBone((int)AvatarBone.Root, 0, 0, 0);
-        addBone((int)AvatarBone.HipLeft, 0, -legLength, 0);
-        addBone((int)AvatarBone.HipRight, 0, -legLength, 0);
-        addBone((int)AvatarBone.KneeLeft, 0, -legLength * 2, 0);
-        addBone((int)AvatarBone.KneeRight, 0, -legLength * 2, 0);
-        addBone((int)AvatarBone.AnkleLeft, 0, -legLength * 3, 0);
-        addBone((int)AvatarBone.AnkleRight, 0, -legLength * 3, 0);
-        addBone((int)AvatarBone.BackLower, 0, torsoHeight, 0);
-        addBone((int)AvatarBone.BackUpper, 0, torsoHeight * 2, 0);
-        addBone((int)AvatarBone.Neck, 0, torsoHeight * 3, 0);
-        addBone((int)AvatarBone.Head, 0, torsoHeight * 4, 0);
-        addBone((int)AvatarBone.ShoulderLeft, -0.25f, torsoHeight * 1.5f, 0);
-        addBone((int)AvatarBone.ShoulderRight, 0.25f, torsoHeight * 1.5f, 0);
-        addBone((int)AvatarBone.ElbowLeft, -0.35f, torsoHeight * 2.8f, 0);
-        addBone((int)AvatarBone.ElbowRight, 0.35f, torsoHeight * 2.8f, 0);
-        addBone((int)AvatarBone.WristLeft, -0.4f, torsoHeight * 3.8f, 0);
-        addBone((int)AvatarBone.WristRight, 0.4f, torsoHeight * 3.8f, 0);
-        addBone((int)AvatarBone.PropLeft, 0, 0, 0.3f);
-        addBone((int)AvatarBone.PropRight, 0, 0, -0.3f);
-    }
-
     public void Draw(IList<Matrix> boneTransforms, AvatarExpression expression)
     {
         ObjectDisposedException.ThrowIf(disposed, this);
         ArgumentNullException.ThrowIfNull(boneTransforms);
         if (boneTransforms.Count != BoneCount)
         {
-            throw new ArgumentException($"Avatar rendering requires {BoneCount} bone transforms.", nameof(boneTransforms));
+            throw new ArgumentException(
+                $"Avatar rendering requires {BoneCount} bone transforms.",
+                nameof(boneTransforms));
         }
 
-        if (State != AvatarRendererState.Ready || vertices.Length == 0 || indices.Length == 0)
-        {
-            // No valid avatar description; keep side-effect free for gameplay.
-            return;
-        }
-
-        // Compute world matrices for each bone from the provided transforms.
-        // The boneTransforms are in model space; we combine with World for the final
-        // bone world matrices. The game's held-item pose logic uses these transforms.
-        Matrix[] worldMatrices = new Matrix[BoneCount];
-        for (int i = 0; i < BoneCount; i++)
-        {
-            worldMatrices[i] = World * boneTransforms[i];
-        }
-
-        // The bone transform pipeline is now wired. The procedural mesh (71 bones
-        // matching AvatarBone enum) allows the game's held-item pose logic to
-        // compute correct transforms from AvatarAnimation clips. Actual mesh rendering
-        // requires GraphicsDevice integration via the game's render loop; the
-        // bone hierarchy (BindPose/ParentBones) is now available for that.
+        // No Xbox avatar mesh can be drawn. The game continues to render its
+        // own held-item and body-part entities through Avatar.Draw's children.
     }
 
     public void Dispose()

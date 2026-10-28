@@ -32,6 +32,8 @@ extern "C" {
 #include "cmz/root_mount.hpp"
 #include "cmz/stfs.hpp"
 
+#include <SDL2/SDL.h>
+
 #include <cerrno>
 #include <cstdarg>
 #include <cstdio>
@@ -74,6 +76,26 @@ bool ensure_directory(const char* path) {
         return S_ISDIR(info.st_mode);
     }
     return mkdir(path, 0777) == 0;
+}
+
+// SDL is the layer between FAudio and the console audio services. On the
+// Switch port the audio driver is selected at runtime and can silently fall
+// back to "dummy", which runs the mixer but produces no sound. Route SDL's own
+// log through host.log so driver-selection failures stay visible.
+void sdl_log_to_host(void* /*userdata*/, int category,
+                     SDL_LogPriority priority, const char* message) {
+    const char* level = "?";
+    switch (priority) {
+        case SDL_LOG_PRIORITY_VERBOSE: level = "verbose"; break;
+        case SDL_LOG_PRIORITY_DEBUG: level = "debug"; break;
+        case SDL_LOG_PRIORITY_INFO: level = "info"; break;
+        case SDL_LOG_PRIORITY_WARN: level = "warn"; break;
+        case SDL_LOG_PRIORITY_ERROR: level = "error"; break;
+        case SDL_LOG_PRIORITY_CRITICAL: level = "critical"; break;
+        default: break;
+    }
+    log_line("SDL[%s/%d]: %s", level, category,
+             message != nullptr ? message : "(null)");
 }
 
 // "stfs:/584E07D1/Content" -> "stfs:/584E07D1/"; "Content" -> "stfs:/"
@@ -166,6 +188,7 @@ int main(int argc, char* argv[]) {
     if (log_directory_ready) {
         g_log = std::fopen(kLogPath, "w");
     }
+    SDL_LogSetOutputFunction(sdl_log_to_host, nullptr);
 
     // The managed root device maps "/save" and "/data" onto the SD card. Create
     // both before managed code runs so FNA's pref path exists on first boot.
@@ -183,6 +206,16 @@ int main(int argc, char* argv[]) {
     // Configure FNA before any managed type touches it.
     configure_environment();
     log_line("controller buttons: Nintendo labels (A=accept, B=back)");
+
+    SDL_version sdl_version {};
+    SDL_GetVersion(&sdl_version);
+    log_line("SDL %d.%d.%d", sdl_version.major, sdl_version.minor,
+             sdl_version.patch);
+    const int audio_driver_count = SDL_GetNumAudioDrivers();
+    log_line("SDL audio drivers: %d", audio_driver_count);
+    for (int index = 0; index < audio_driver_count; ++index) {
+        log_line("SDL audio driver[%d]: %s", index, SDL_GetAudioDriver(index));
+    }
 
     if (!ensure_directory(kPrefPath)) {
         log_line("warning: could not create the storage directory (%s)",

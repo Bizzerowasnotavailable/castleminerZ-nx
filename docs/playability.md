@@ -15,24 +15,28 @@ without a Switch. It assumes the graphics decision in
 | Managed relinker | deterministic, verified, idempotent |
 | mono-nx static AOT probe (no FNA) | builds and links |
 | FNA managed code inside the AOT probe | ILLink keeps it, AOT succeeds, and the ELF links FNA3D + Mesa + SDL2 + FAudio with no undefined symbols |
-| FNA `Game`/`GraphicsDevice` in the managed probe | creates a device, clears and presents 240 frames — **awaiting a hardware run** |
+| FNA `Game`/`GraphicsDevice` in the managed probe | creates a device, clears and presents 240 frames in Eden; hardware run pending |
 | FNA3D + Mesa + SDL2 native stack | **links and produces a 6.3 MB NRO** (native probe) |
 | Game assets read from the package at runtime | verified in Eden through STFS and the managed root device |
-| Game `Main()` reached | verified; title screen reached in Eden |
-| Offline world entry | verified in Eden; terrain, sky, HUD and pause menu render |
+| Game `Main()` reached | verified; title screen and offline world reached in Eden |
+| Offline world entry | verified in Eden; terrain, sky, water, HUD, hotbar icons, held item and pause menu render |
+| First-person held items | correct lower-right placement verified in Eden using the game's fallback avatar skeleton |
 | Xbox custom effects | ten project-authored replacements compile and pass MojoShader/interface checks |
 | Xbox texture/model byte order | corrected sky, hotbar icons and held models verified in Eden; synthetic reader tests pass |
+| Audio (XACT/FAudio) | PCM SFX path linked; 11 WMA streaming entries unsupported; Eden audren blocks all SDL playback; hardware validation pending |
 | Local profile integration | selected local user and UID-scoped storage verified in Eden; synthetic facade tests pass; hardware validation pending |
 
 The native graphics stack and package filesystem work in Eden. The reported
 “Loading Player Info” step is passed: internal GPU screenshots confirm offline
-world entry, generated terrain, HUD, and the pause menu. A checked FNA cubemap
-byte-order patch fixes the multicolored corrupted sky. Raw model vertex/index
-buffers also need Xbox byte-order conversion; that fix passes synthetic tests
-and restores the hotbar icons and held models in Eden. Held-item poses remain
-wrong because the placeholder avatar has no real rig. Inventory, entities, combat, audio, and
-save/load still need complete checks. No physical Switch run or full-playability
-claim is made.
+world entry, generated terrain, sky, water, HUD, hotbar icons, held item, and the
+pause menu. A checked FNA cubemap byte-order patch fixes the multicolored
+corrupted sky. Raw model vertex/index buffers also need Xbox byte-order
+conversion; that fix passes synthetic tests and restores the hotbar icons and
+held models in Eden. First-person held items are now placed correctly because
+`AvatarRenderer` reports `Unavailable`, which selects the game's own fallback
+bind pose instead of a placeholder rig; the third-person player body is still
+invisible. Inventory, entities, combat, audio, and a full save/load cycle still
+need complete checks. No physical Switch run or full-playability claim is made.
 
 Native EGL errors can mask an original managed error when the game's error
 screen creates a second graphics device. Diagnostic hooks log the original
@@ -172,6 +176,16 @@ reimplementation is needed.
    package filesystem, including streaming cues.
 3. Verify category volumes, 3D positional cues and loop regions.
 4. Keep a silent no-op path if audio init fails so the game still runs.
+
+State: the XACT/FAudio path is linked and the sound-effect bank is PCM
+(`Sounds.xwb`, 127 entries). The 11 streaming music entries in
+`SoundsStreaming.xwb` are WMA, which the current Switch FAudio build does not
+decode. Eden cannot validate playback at all: SDL opens the `switch` driver, but
+the emulator's audren renderer never advances wave buffers, so
+`SWITCHAUDIO_PlayDevice` blocks in `audrenWaitFrame`. A standalone SDL tone NRO
+receives one callback and then blocks, proving this is an emulator limit rather
+than port code. Do not open an audio device in the native host before Mono
+starts; that deadlocks startup.
 
 Exit criterion: music and effects play, and stopping/restarting the engine does
 not leak or deadlock.
