@@ -184,6 +184,36 @@ graphics work is game-side.
   running game, with exit criteria.
 - [`docs/roadmap.md`](docs/roadmap.md) tracks the remaining work to gameplay.
 
+## Distributing builds
+
+`castleminerz.nro` is a **private build**, not a self-contained release. The
+full game build AOT-compiles the user's `CastleMinerZ.exe` and `DNA.Common.dll`
+into the NRO and reads the original STFS package at runtime. Publishing or
+redistributing that NRO, its generated AOT objects, or the relinked managed
+assemblies would redistribute copyrighted game code and assets. Share the
+source, scripts, and documentation instead; each user must supply their own
+package and build locally.
+
+For personal SD-card use, copy the NRO anywhere under `sdmc:/switch/` and keep:
+
+```text
+sdmc:/switch/castleminerz/game/<package>
+sdmc:/switch/castleminerz/managed/CastleMinerZ.exe
+sdmc:/switch/castleminerz/managed/DNA.Common.dll
+```
+
+The NRO embeds a default runtime config and creates
+`sdmc:/switch/castleminerz-logs/` automatically, so no extra config file is
+required. An `aot_config.ini` in that folder overrides the embedded defaults for
+debugging. A clean-SD boot without any override was verified in Eden.
+
+On hardware, launch in **full application mode** (hold R while starting an
+installed game to open hbmenu), not from the album. The Mono runtime needs the
+full memory budget and refuses applet mode.
+
+The NRO also is not yet hardware-validated; Eden is the only tested
+environment, and audio remains blocked there.
+
 ## Legal
 
 This is an independent interoperability and preservation project. CastleMiner Z

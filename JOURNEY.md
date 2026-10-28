@@ -19,7 +19,8 @@ Build a playable Nintendo Switch port of CastleMiner Z using Xbox 360 GOD/STFS p
 - **Verified:** title screen, offline world entry and save load, terrain,
   sky/clouds, water, HUD, hotbar icons, first-person held item, pause menu,
   movement/camera, mapped controller input, local-profile identity, and
-  UID-scoped saves.
+  UID-scoped saves. A clean-SD boot with no `aot_config.ini` override also
+  reaches the world flow.
 - **Open:** audio in Eden (the emulator's audren renderer never consumes SDL
   buffers), WMA streaming music, invisible third-person avatar body,
   inventory/combat/full save-cycle validation, and physical-hardware testing.
@@ -252,6 +253,10 @@ Environment Variables:
 - **Private Intermediates**: Generated AOT code and extracted assemblies in ignored directories
 - **Public Code**: Parsers, compatibility APIs, tests, project-authored replacements
 - **Licensing**: Project-authored code under MIT license
+- **No Binary Distribution**: the game NRO, generated game AOT code, and relinked
+  game assemblies are private build outputs. They embed or load the user's
+  `CastleMinerZ.exe`/`DNA.Common.dll` and must not be published; ship the source
+  and build scripts instead.
 
 ### Preservation Focus
 - **Static Analysis**: Decompiled game code not included
