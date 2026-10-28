@@ -24,6 +24,7 @@ extern "C" {
 }
 
 #include "host_paths.h"
+#include "local_profile.h"
 
 #include "cmz/game_image.hpp"
 #include "cmz/package_mount.hpp"
@@ -102,9 +103,23 @@ void configure_environment() {
     // FNA picks SDL3 unless told otherwise, and its OpenGL backend only selects
     // GLES on a hard-coded platform list that does not include "Switch".
     setenv("FNA_PLATFORM_BACKEND", "SDL2", 1);
+    // Match the game's A/B/X/Y prompts to Nintendo labels, not Xbox positions.
+    // Without this, a physical Switch A is reported to the game as Xbox B.
+    setenv("FNA_GAMEPAD_IGNORE_PHYSICAL_LAYOUT", "1", 1);
+    // SDL 2.28.5's libnx backend has a fixed positional mapping that ignores
+    // the label hint. Override only that backend's built-in controller GUID.
+    setenv("SDL_GAMECONTROLLERCONFIG",
+           "000038f853776974636820436f6e7400,Switch Controller (Nintendo labels),"
+           "a:b0,b:b1,x:b2,y:b3,back:b11,start:b10,"
+           "leftstick:b4,rightstick:b5,leftshoulder:b6,rightshoulder:b7,"
+           "lefttrigger:b8,righttrigger:b9,leftx:a0,lefty:a1,rightx:a2,righty:a3,"
+           "dpleft:b12,dpup:b13,dpright:b14,dpdown:b15,crc:f838,", 1);
     setenv("FNA3D_FORCE_DRIVER", "OpenGL", 1);
     setenv("FNA3D_OPENGL_FORCE_ES3", "1", 1);
     setenv("FNA3D_OPENGL_WINDOW_DEPTHSTENCILFORMAT", "Depth24Stencil8", 1);
+    setenv("CMZ_REPLACEMENT_EFFECT_DIRECTORY", "romfs:/effects", 1);
+    // BlockEffect samples the first environment slice at its exact texel center.
+    setenv("CMZ_FIRST_ENVIRONMENT_SLICE_ONLY", "1", 1);
 
     // The base path is provided by sdl_paths.cpp, so this only keeps FNA from
     // preferring AppDomain.CurrentDomain.BaseDirectory if the order changes.
@@ -156,7 +171,10 @@ int main(int argc, char* argv[]) {
     // both before managed code runs so FNA's pref path exists on first boot.
     ensure_directory("sdmc:/switch/castleminerz/save");
     ensure_directory("sdmc:/switch/castleminerz/data");
+    const CmzLocalProfile local_profile = cmz_initialize_local_profile();
     log_line("castleminerZ-nx runtime host");
+    log_line("local Switch profile: %s (no online account required)",
+             local_profile.available ? "selected" : "unavailable; offline fallback");
     log_line("arguments: %d", argc - 1);
     for (int index = 1; index < argc; ++index) {
         log_line("  argv[%d] = %s", index, argv[index]);
@@ -164,6 +182,7 @@ int main(int argc, char* argv[]) {
 
     // Configure FNA before any managed type touches it.
     configure_environment();
+    log_line("controller buttons: Nintendo labels (A=accept, B=back)");
 
     if (!ensure_directory(kPrefPath)) {
         log_line("warning: could not create the storage directory (%s)",
@@ -207,7 +226,7 @@ int main(int argc, char* argv[]) {
                 std::snprintf(g_vfs_content_directory,
                               sizeof(g_vfs_content_directory), "%s",
                               virtual_content.c_str());
-                cmz_host_set_paths("/game/", "/save/");
+                cmz_host_set_paths("/game/", local_profile.pref_directory.c_str());
 
                 log_line("package root: cmz:/ -> %s", base.c_str());
                 log_line("vfs mounted: %s", g_vfs_content_directory);
@@ -280,6 +299,25 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     log_line("mono_jit_init: done");
+
+    // Mono resolves static-AOT dependencies before mono_jit_exec establishes
+    // AppContext.BaseDirectory. Preload the companion assembly explicitly so
+    // it does not have to be duplicated in the runtime's RomFS search root.
+    const std::string entry_path = g_config.default_assembly;
+    const std::size_t entry_separator = entry_path.find_last_of("/\\");
+    if (entry_path.substr(entry_separator == std::string::npos
+                              ? 0 : entry_separator + 1) == "CastleMinerZ.exe") {
+        const std::string companion = entry_path.substr(
+            0, entry_separator == std::string::npos ? 0 : entry_separator + 1) +
+            "DNA.Common.dll";
+        log_line("companion assembly open: %s", companion.c_str());
+        if (mono_domain_assembly_open(domain, companion.c_str()) == nullptr) {
+            log_line("could not load companion assembly");
+            fatal_error("Failed to load DNA.Common.dll from the managed SD directory");
+            return 1;
+        }
+        log_line("companion assembly open: done");
+    }
 
     io_debugf("Loading assembly %s", g_config.default_assembly);
 

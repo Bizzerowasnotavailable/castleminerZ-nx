@@ -8,7 +8,7 @@ $forbiddenNames = @(
 )
 $forbiddenExtensions = @(
     '.xex', '.xexp', '.xnb', '.xwb', '.xsb', '.xgs', '.stfs', '.live',
-    '.pirs', '.god', '.pfx', '.p12', '.pem', '.key', '.keys', '.tik'
+    '.pirs', '.god', '.fxb', '.pfx', '.p12', '.pem', '.key', '.keys', '.tik'
 )
 
 $candidates = & git -C $repo ls-files --cached --others --exclude-standard

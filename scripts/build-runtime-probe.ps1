@@ -16,6 +16,7 @@ $stage = Join-Path $Workspace 'cmz-runtime-probe-stage'
 $stageMarker = Join-Path $stage '.cmz-runtime-probe-stage'
 $stageAot = Join-Path $stage 'native\aot'
 $bash = Join-Path $DevkitPro 'msys2\usr\bin\bash.exe'
+& (Join-Path $PSScriptRoot 'apply-dependency-patches.ps1') -Workspace $Workspace -Dependency mono-nx
 
 foreach ($required in @(
     (Join-Path $monoSource '.git'),
@@ -80,7 +81,7 @@ foreach ($relative in $trackedNativeFiles) {
 # must be removed because it defines its own main().
 $stageSource = Join-Path $stageAot 'source'
 Remove-Item -LiteralPath (Join-Path $stageSource 'main.c') -Force
-foreach ($name in @('main.cpp', 'sdl_paths.cpp', 'host_paths.h')) {
+foreach ($name in @('main.cpp', 'sdl_paths.cpp', 'host_paths.h', 'local_profile.cpp', 'local_profile.h')) {
     Copy-Item -LiteralPath (Join-Path $repo "runtime-probe\native\$name") `
         -Destination (Join-Path $stageSource $name) -Force
 }

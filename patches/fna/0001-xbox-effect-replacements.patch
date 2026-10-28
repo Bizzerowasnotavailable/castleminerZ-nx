@@ -1,0 +1,57 @@
+diff --git a/src/Content/ContentReaders/EffectReader.cs b/src/Content/ContentReaders/EffectReader.cs
+index 016750f..5d10696 100644
+--- a/src/Content/ContentReaders/EffectReader.cs
++++ b/src/Content/ContentReaders/EffectReader.cs
+@@ -8,6 +8,8 @@
+ #endregion
+ 
+ #region Using Statements
++using System;
++using System.IO;
+ using Microsoft.Xna.Framework.Graphics;
+ #endregion
+ 
+@@ -22,9 +24,42 @@ namespace Microsoft.Xna.Framework.Content
+ 			Effect existingInstance
+ 		) {
+ 			int length = input.ReadInt32();
++			byte[] effectCode = input.ReadBytes(length);
++			string replacementRoot = Environment.GetEnvironmentVariable(
++				"CMZ_REPLACEMENT_EFFECT_DIRECTORY"
++			);
++			if (input.platform == 'x' && !String.IsNullOrEmpty(replacementRoot))
++			{
++				string name;
++				switch (input.AssetName.Replace('\\', '/').ToLowerInvariant())
++				{
++					case "texturesky": name = "TextureSky"; break;
++					case "skysphere": name = "SkySphere"; break;
++					case "gradientskyeffect": name = "GradientSkyEffect"; break;
++					case "billboard": name = "Billboard"; break;
++					case "particleeffect": name = "ParticleEffect"; break;
++					case "effects/blockeffect": name = "BlockEffect"; break;
++					case "effects/watereffect": name = "WaterEffect"; break;
++					case "effects/tracer": name = "Tracer"; break;
++					case "fbx/85e71e99/crackbox.fbm/crackeffect_0": name = "CrackEffect"; break;
++					case "fbx/86b81ead/selector.fbm/diffuseanimuv_0": name = "DiffuseAnimUV"; break;
++					default:
++						throw new ContentLoadException("No project-authored Xbox effect replacement for " + input.AssetName);
++				}
++				string path = Path.Combine(replacementRoot, name + ".fxb");
++				try
++				{
++					effectCode = File.ReadAllBytes(path);
++				}
++				catch (IOException ex)
++				{
++					throw new ContentLoadException("Could not load replacement effect " + path, ex);
++				}
++				FNALoggerEXT.LogInfo("CMZ replacement effect: " + input.AssetName + " -> " + name);
++			}
+ 			Effect effect = new Effect(
+ 				input.ContentManager.GetGraphicsDevice(),
+-				input.ReadBytes(length)
++				effectCode
+ 			);
+ 			effect.Name = input.AssetName;
+ 			return effect;

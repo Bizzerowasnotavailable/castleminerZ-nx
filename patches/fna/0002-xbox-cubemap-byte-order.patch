@@ -1,0 +1,40 @@
+diff --git a/src/Content/ContentReaders/TextureCubeReader.cs b/src/Content/ContentReaders/TextureCubeReader.cs
+--- a/src/Content/ContentReaders/TextureCubeReader.cs
++++ b/src/Content/ContentReaders/TextureCubeReader.cs
+@@ -47,6 +47,36 @@ namespace Microsoft.Xna.Framework.Content
+ 				{
+ 					int faceSize = reader.ReadInt32();
+ 					byte[] faceData = reader.ReadBytes(faceSize);
++					// Xbox cube faces use the same byte order as Xbox 2D
++					// textures. Convert every face and mip before uploading.
++					if (reader.platform == 'x')
++					{
++						int mipSize = System.Math.Max(1, size >> i);
++						switch (surfaceFormat)
++						{
++							case SurfaceFormat.Color:
++							case SurfaceFormat.ColorBgraEXT:
++								faceData = X360TexUtil.SwapColor(faceData);
++								break;
++							case SurfaceFormat.Dxt1:
++								faceData = X360TexUtil.SwapDxt1(
++									faceData, mipSize, mipSize
++								);
++								break;
++							case SurfaceFormat.Dxt3:
++								faceData = X360TexUtil.SwapDxt3(
++									faceData, mipSize, mipSize
++								);
++								break;
++							case SurfaceFormat.Dxt5:
++								faceData = X360TexUtil.SwapDxt5(
++									faceData, mipSize, mipSize
++								);
++								break;
++						}
++						faceSize = faceData.Length;
++					}
++
+ 					textureCube.SetData<byte>(
+ 						(CubeMapFace) face,
+ 						i,

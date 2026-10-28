@@ -1,0 +1,13 @@
+diff --git a/profiles/mojoshader_profile_glsl.c b/profiles/mojoshader_profile_glsl.c
+--- a/profiles/mojoshader_profile_glsl.c
++++ b/profiles/mojoshader_profile_glsl.c
+@@ -557,6 +557,9 @@ void emit_GLSL_start(Context *ctx, const char *profilestr)
+         else
+             output_line(ctx, "precision mediump float;");
+         output_line(ctx, "precision mediump int;");
++        // Unlike sampler2D and samplerCube, sampler3D has no default precision
++        // in GLSL ES 3.0. Volume textures otherwise fail on strict compilers.
++        output_line(ctx, "precision lowp sampler3D;");
+         pop_output(ctx);
+     } // else if
+     #endif

@@ -20,12 +20,13 @@ XBLIG package.
 - [x] Add a synthetic STFS read test across a hash-table boundary.
 - [ ] Expand the malformed-package and alternate-layout test corpus.
 - [ ] Implement fragmented STFS hash-chain traversal.
-- [ ] Add streaming package handles suitable for managed `Stream` consumers.
-- [ ] Parse XNB v5 headers and implement LZX decompression.
-- [ ] Inventory built-in and custom XNB readers and create conformance fixtures.
-- [ ] Inventory Effect payloads and decide whether adapted XenosRecomp is
-  required for each shader family.
-- [ ] Create a user-side private extraction/relink/AOT pipeline with checks that
+- [x] Add streaming package handles suitable for managed `Stream` consumers.
+- [x] Use FNA's XNB v5 readers and LZX decompression through the package VFS.
+- [x] Inventory all 224 XNB reader tables and the ten custom effect assets.
+- [x] Add synthetic cubemap and model-buffer reader fixtures beyond effect interfaces.
+- [x] Replace Xenos-only custom effects with project-authored D3D9 effect sources;
+  validate MojoShader parsing, GLSL ES 3 translation and interface contracts.
+- [x] Create a user-side private extraction/relink/AOT pipeline with checks that
   prevent proprietary outputs from entering source control.
 
 ## M2 — managed runtime bring-up
@@ -65,22 +66,30 @@ XBLIG package.
   clears and presents 240 frames, and attempts a `SpriteBatch` draw.
 - [ ] Confirm the native and managed probes present on physical hardware and
   record the GL vendor/renderer/version, device result and frame rate.
-- [ ] Implement the STFS devoptab so `File`/`ContentManager` read the package
+- [x] Implement the STFS devoptab so `File`/`ContentManager` read the package
   directly.
 - [ ] Implement the graphics resources and render states needed by startup.
-- [ ] Convert/load the initial Effect shaders.
-- [ ] Load uncompressed and compressed texture/font/model XNBs.
-- [ ] Render the loading screen and then the main menu.
+- [x] Compile and load the initial project-authored replacement effects in Eden.
+- [x] Load startup textures, fonts and models directly from the package in Eden.
+- [x] Reach the title screen in Eden.
+- [x] Complete and visually verify the main-menu/offline-world-entry path in Eden.
+- [x] Correct Xbox cubemap byte order and verify sky rendering in Eden.
+- [x] Verify corrected Xbox model vertex/index uploads in a running world:
+  hotbar icons and held models render in Eden.
 
 ## M4 — offline gameplay
 
 - [ ] Implement XACT global settings, sound banks, wave banks, and streaming.
-- [ ] Implement gamer, Guide, keyboard/message dialogs, and save storage shims.
+- [x] Map the selected local Switch profile's nickname, picture and UID-scoped
+  storage onto the offline gamer APIs without requiring a Nintendo Account.
+- [ ] Validate profile selection and save/load on hardware; implement real
+  keyboard/message dialogs rather than deterministic compatibility responses.
 - [ ] Implement the local `NetworkSession` behavior assumed by game logic.
 - [ ] Implement a legally distributable avatar replacement renderer and map the
   packaged animation data.
-- [ ] Enter a world and validate terrain generation, chunk workers, inventory,
-  entities, combat, saving, and loading.
+- [ ] Correct first-person held-item poses with the replacement avatar rig.
+- [x] Enter an offline world in Eden and render generated terrain, sky and HUD.
+- [ ] Validate chunk workers, inventory, entities, combat, saving, and loading.
 - [ ] Profile memory and frame time on retail-frequency Switch hardware.
 
 ## M5 — compatibility and multiplayer

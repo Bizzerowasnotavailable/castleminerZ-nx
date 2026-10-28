@@ -17,17 +17,33 @@ without a Switch. It assumes the graphics decision in
 | FNA managed code inside the AOT probe | ILLink keeps it, AOT succeeds, and the ELF links FNA3D + Mesa + SDL2 + FAudio with no undefined symbols |
 | FNA `Game`/`GraphicsDevice` in the managed probe | creates a device, clears and presents 240 frames — **awaiting a hardware run** |
 | FNA3D + Mesa + SDL2 native stack | **links and produces a 6.3 MB NRO** (native probe) |
-| Game assets read from the package at runtime | not implemented |
-| Game `Main()` reached | not reached |
+| Game assets read from the package at runtime | verified in Eden through STFS and the managed root device |
+| Game `Main()` reached | verified; title screen reached in Eden |
+| Offline world entry | verified in Eden; terrain, sky, HUD and pause menu render |
+| Xbox custom effects | ten project-authored replacements compile and pass MojoShader/interface checks |
+| Xbox texture/model byte order | corrected sky, hotbar icons and held models verified in Eden; synthetic reader tests pass |
+| Local profile integration | selected local user and UID-scoped storage verified in Eden; synthetic facade tests pass; hardware validation pending |
 
-The native graphics stack is no longer a research question, and the managed FNA
-path now links into the same NRO. What remains is a hardware run, exposing the
-package as a filesystem, and then grinding through the game's content and
-services.
+The native graphics stack and package filesystem work in Eden. The reported
+“Loading Player Info” step is passed: internal GPU screenshots confirm offline
+world entry, generated terrain, HUD, and the pause menu. A checked FNA cubemap
+byte-order patch fixes the multicolored corrupted sky. Raw model vertex/index
+buffers also need Xbox byte-order conversion; that fix passes synthetic tests
+and restores the hotbar icons and held models in Eden. Held-item poses remain
+wrong because the placeholder avatar has no real rig. Inventory, entities, combat, audio, and
+save/load still need complete checks. No physical Switch run or full-playability
+claim is made.
+
+Native EGL errors can mask an original managed error when the game's error
+screen creates a second graphics device. Diagnostic hooks log the original
+exception before that happens. Mono also exhausted its default 4,096 AOT
+trampolines during startup; the build now reserves 16,384 for
+`System.Private.CoreLib`. Manual Eden stops can produce host teardown faults;
+those are not evidence of a new in-game crash.
 
 ## Gate A — FNA inside the static-AOT runtime
 
-Blocking issue: FNA's `FNADllMap` is a `[ModuleInitializer]`, so ILLink keeps
+Resolved build issue: FNA's `FNADllMap` is a `[ModuleInitializer]`, so ILLink keeps
 its whole body, including `XmlDocument`; `System.Private.Xml` drags in
 `System.Net.Http` → `System.Net.Security` → OpenSSL `CryptoNative_*`, which
 mono-nx does not ship. A second, independent blocker: `mono-aot-cross`
@@ -37,8 +53,10 @@ references (`SDL_OpenGamepad`, `emscripten_set_main_loop`, ...) that cannot
 link.
 
 Both are handled by one project-owned Cecil pass, `tools/managed-aot-prep`,
-which rewrites the compiled FNA assembly before ILLink and AOT. The pinned FNA
-source is never modified.
+which rewrites the compiled FNA assembly before ILLink and AOT. That preparation
+pass does not modify source; separate checked source patches implement Xbox
+effect replacement loading, Xbox texture/model byte order, and the native GLSL
+ES precision fix.
 
 1. Stub `Microsoft.Xna.Framework.FNADllMap::Init` to `return;`. On Switch the
    resolver is unnecessary: FNA3D, FAudio and SDL2 are statically linked and
@@ -58,7 +76,7 @@ source is never modified.
    the AOT ELF, with `-lnx` **after** the Mesa archives (static link order).
 6. Set the environment before managed startup: `FNA_PLATFORM_BACKEND=SDL2`,
    `FNA3D_FORCE_DRIVER=OpenGL`, `FNA3D_OPENGL_FORCE_ES3=1`,
-   `FNA_SDL2_FORCE_BASE_PATH` (see Gate B). The managed probe does this itself;
+    `FNA_SDL_FORCE_BASE_PATH` (see Gate B). The managed probe does this itself;
    the real host must do it before any FNA type is touched.
 7. Call `console_dispose()` before SDL takes the display and
    `console_ensure_init()` afterwards, because the libnx console owns the
@@ -85,12 +103,19 @@ cleanest way to serve the STFS package is a libnx `devoptab`, not managed I/O:
    point, or a dedicated `stfs:` device).
 2. Map package-relative paths onto the existing `StfsPackage` block math, add a
    4 KiB readahead cache, and keep bounds checking where it is today.
-3. Point FNA at the mount with `FNA_SDL2_FORCE_BASE_PATH` so `TitleLocation`
+3. Point FNA at the mount with `FNA_SDL_FORCE_BASE_PATH` so `TitleLocation`
    and `ContentManager.RootDirectory` resolve inside the package.
 4. Keep saves and configuration on `sdmc:` — never inside the package.
 
 Exit criterion: managed code opens `Content/...xnb` through `File`/`Stream`,
 and `ContentManager.Load<Texture2D>` returns a real texture.
+
+State: verified in Eden. `stfs:/` serves the original package; `cmz:/` exposes
+`/game`, `/save`, `/logs` and `/data`, and is the working directory. FNA's base
+path is `/game/`. Its preference path is `/save/profiles/<local-uid>/` for a
+selected local user, or `/save/guest/` without one. The earlier probe completed
+239 presented frames at approximately 53.1 fps. This does not establish hardware
+performance.
 
 ## Gate C — content formats
 
@@ -103,18 +128,38 @@ The package holds 224 XNB files, 2 `.xwb` wave banks, 1 `.xsb` sound bank and
 2. Textures: the game's XNBs are DXT-compressed. Confirm
    `EXT_texture_compression_s3tc` on switch-mesa; if it is absent, decompress
    DXT1/3/5 on the CPU at load time (slow but correct) behind
-   `FNA3D_SupportsDXT1`/`SupportsDXT5`-style checks.
-3. Effects: `BlockEffect`, `WaterEffect` and `Tracer` are compiled XNA FX. FNA
-   runs them through Mojoshader, which is built with effect support in the
-   pinned FNA3D; verify GLSL-ES 3.0 translation and uniform binding on device.
-4. Models and skinning: `SkinnedEffect`/`SkinnedModel` paths, bone palette size
-   against `GL_MAX_VERTEX_UNIFORM_VECTORS` (a common Tegra limit).
+    `FNA3D_SupportsDXT1`/`SupportsDXT5`-style checks. FNA already byte-swaps Xbox
+    2D texture payloads, but its cube reader did not. A checked patch now applies
+    Color/BGRA and DXT1/3/5 conversion to every cube face and mip. The sky fix is
+    verified in Eden; 480 synthetic face/mip uploads check Xbox conversion,
+    desktop passthrough, sub-block mip sizes and existing texture reuse.
+3. Effects: the ten custom Xbox FXBs contain Xenos GPU microcode, not PC D3D9
+   shaders; byte swapping cannot make MojoShader run them. Sources in
+   `shaders/effects` provide project-authored approximations with the same
+   callable parameters and technique/pass order. D3DX9 compiles them into
+   MojoShader-compatible effects. A checked FNA patch substitutes only the
+   allowlisted Xbox effect assets; textures/models still come from the package.
+   The native translator patch declares `sampler3D` precision for strict GLES 3
+   compilers. Visual parity and complete on-device coverage remain unverified.
+4. Models and skinning: raw Xbox model vertices and indices are big-endian.
+    Checked readers reverse 32-bit float/packed words and 16-bit short/half
+    components according to the vertex declaration, preserving stride padding;
+    16/32-bit indices are swapped separately. Synthetic tests cover all XNA
+    vertex formats, interleaved layouts, desktop passthrough, index reuse and
+    invalid declarations. Skinning paths and bone palette size against
+    `GL_MAX_VERTEX_UNIFORM_VECTORS` still need runtime checks.
 5. Fonts and strings: `SpriteFont` plus the six localized XNBs.
 6. Avatar animation: `Content/AvatarAnimation/*.xnb` is loaded by the game, so
    the avatar API must not throw even where rendering is a placeholder.
 
 Exit criterion: a probe renders one textured model, one stock `BasicEffect`
 mesh, one custom effect, and a string drawn with `SpriteFont`.
+
+The host sets `CMZ_FIRST_ENVIRONMENT_SLICE_ONLY=1`. Its FNA3D patch omits the
+three unused layers of the game's four-layer environment texture because the
+current `BlockEffect` samples only slice zero at Z `0.125`. This removes Eden's
+layered-DMA warnings without changing the current shader's sampled data. Disable
+or revise the optimization before sampling other layers.
 
 ## Gate D — audio (XACT)
 
@@ -135,7 +180,11 @@ not leak or deadlock.
 
 1. Map Switch controller state onto XNA `GamePad`/`Keyboard` (A/B/X/Y, sticks
    with dead zone, ZL/ZR, plus/minus, d-pad) and expose it through the existing
-   FNA SDL2 backend.
+    FNA SDL2 backend.
+   The host selects Nintendo button labels and supplies an explicit mapping for
+   SDL 2.28.5's built-in libnx controller. Its fixed default mapping ignored the
+   label hint and made Switch A act as Xbox B/back. The override maps A/B/X/Y by
+   label while retaining the original sticks, d-pad, shoulders and triggers.
 2. Handle docked/handheld, suspend/resume, and controller connect/disconnect
    without leaking the GL context.
 3. Map `+` (or `Home` exit) to a clean shutdown of mono and SDL.
@@ -145,9 +194,17 @@ with sleep/resume behaves.
 
 ## Gate F — platform services
 
-1. Saves: `StorageDevice`/`StorageContainer` onto `sdmc:/switch/castleminerz/saves`.
-   The game's world saves are large — check free-space reporting and flushing.
-2. GamerServices: already shimmed; confirm the game accepts the local profile,
+1. Saves: `StorageDevice`/`StorageContainer` uses
+    `sdmc:/switch/castleminerz/save/profiles/<local-uid>/`, or `save/guest/`.
+    Eden creates player statistics, world metadata and inventory files there.
+    File creation is not yet proof of a successful reload or profile isolation.
+    Check free-space reporting, flushing and a full restart/load cycle.
+    Use Survival for persistent-world tests: the original game intentionally
+    deletes its current Endurance world on a clean return to the main menu.
+2. GamerServices: the selected console-local Switch profile now supplies the
+   offline gamer's nickname, picture and UID-scoped storage; a linked Nintendo
+   Account is not requested. See [local profiles](local-profiles.md). Confirm
+   the game accepts the local profile,
    the deterministic Guide dialogs, and offline `NetworkSession` for any
    co-op menus.
 3. Avatars: the game uses avatars as player characters and animates them. Xbox

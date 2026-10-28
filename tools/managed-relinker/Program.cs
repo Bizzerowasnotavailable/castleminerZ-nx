@@ -3,7 +3,7 @@ using System.Text;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
 
-const string SchemaTag = "cmz-managed-relink/1";
+const string SchemaTag = "cmz-managed-relink/2";
 
 if (args.Length == 0)
 {
@@ -263,6 +263,39 @@ foreach (string input in inputs)
         }
     }
 
+    // Preserve the original error before the game's error-display Game creates
+    // a second SDL/EGL window and obscures it with a native presentation error.
+    if (compatTypes.TryGetType("CastleMinerZ.XnaCompat.RuntimeDiagnostics", out TypeDefinition? diagnostics) &&
+        diagnostics is not null)
+    {
+        MethodDefinition reporter = diagnostics.Methods.Single(method => method.Name == "ReportException");
+        foreach (TypeDefinition type in assembly.MainModule.Types.Where(type =>
+                     type.FullName is "DNA.DNAGame" or "DNA.ExceptionGame"))
+        {
+            foreach (MethodDefinition method in type.Methods.Where(method =>
+                         method.HasBody && !method.IsStatic && method.Parameters.Count > 0 &&
+                         method.Parameters[0].ParameterType.FullName == "System.Exception" &&
+                         (method.Name == "CrashGame" || method.IsConstructor)))
+            {
+                if (method.Body.Instructions.Any(instruction =>
+                        instruction.Operand is MethodReference reference &&
+                        reference.DeclaringType.FullName == diagnostics.FullName &&
+                        reference.Name == reporter.Name))
+                    continue;
+
+                var call = new MethodReference(reporter.Name, assembly.MainModule.TypeSystem.Void,
+                    assembly.MainModule.ImportReference(diagnostics)) { HasThis = false };
+                call.Parameters.Add(new ParameterDefinition(method.Parameters[0].ParameterType));
+                ILProcessor il = method.Body.GetILProcessor();
+                Instruction first = method.Body.Instructions[0];
+                il.InsertBefore(first, il.Create(OpCodes.Ldarg_1));
+                il.InsertBefore(first, il.Create(OpCodes.Call, call));
+                method.Body.MaxStackSize = Math.Max(method.Body.MaxStackSize, 1);
+                shimmed++;
+            }
+        }
+    }
+
     foreach (string message in unresolved.Where(item => item.StartsWith(assembly.Name.Name + "|", StringComparison.Ordinal)))
     {
         Console.Error.WriteLine($"  unresolved type: {message[(assembly.Name.Name.Length + 1)..]}");
@@ -353,7 +386,7 @@ foreach (string input in inputs)
         return Fail($"Refusing to overwrite the input assembly: {path}");
     }
 
-    if (rewritten == 0 && pruned == 0 && shimmed == 0)
+    if (rewritten == 0 && coreRewritten == 0 && pruned == 0 && shimmed == 0)
     {
         File.Copy(path, destination, overwrite: true);
         Console.WriteLine($"  already compatible; copied unchanged: {destination}");

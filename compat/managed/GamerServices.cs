@@ -88,10 +88,12 @@ public abstract class Gamer
 
     public object? Tag { get; set; }
 
+    internal LocalUserProfile? LocalProfile { get; set; }
+
     public IAsyncResult BeginGetProfile(AsyncCallback? callback, object? asyncState) =>
         CompletedAsyncResult<GamerProfile>.Run(
             profileOperation,
-            static () => new GamerProfile(),
+            () => new GamerProfile(LocalProfile?.PicturePath),
             callback,
             asyncState);
 
@@ -124,13 +126,35 @@ public sealed class FriendCollection : GamerCollection<FriendGamer>
 
 public sealed class GamerProfile
 {
+    private readonly string? picturePath;
+
+    internal GamerProfile(string? picturePath = null)
+    {
+        this.picturePath = picturePath;
+    }
+
     // A valid transparent 1x1 PNG keeps callers that immediately decode a
     // profile image on the normal success path.
     private const string EmptyPicture =
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScL5WQAAAABJRU5ErkJggg==";
 
-    public Stream GetGamerPicture() =>
-        new MemoryStream(Convert.FromBase64String(EmptyPicture), writable: false);
+    public Stream GetGamerPicture()
+    {
+        if (!string.IsNullOrEmpty(picturePath))
+        {
+            try
+            {
+                return File.OpenRead(picturePath);
+            }
+            catch (IOException)
+            {
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
+        }
+        return new MemoryStream(Convert.FromBase64String(EmptyPicture), writable: false);
+    }
 }
 
 public sealed class GamerPrivileges
@@ -359,7 +383,11 @@ internal static class GamerServicesRuntime
         while (gamers.Count < target)
         {
             int slot = gamers.Count;
-            var gamer = new SignedInGamer((PlayerIndex)slot, $"Player {slot + 1}");
+            LocalUserProfile? profile = slot == 0 ? LocalUserProfile.ReadSelected() : null;
+            var gamer = new SignedInGamer((PlayerIndex)slot, profile?.Nickname ?? $"Player {slot + 1}")
+            {
+                LocalProfile = profile
+            };
             gamers.Add(gamer);
             SignedInGamer.RaiseSignedIn(gamer);
         }

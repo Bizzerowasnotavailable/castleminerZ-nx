@@ -6,6 +6,8 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+& (Join-Path $PSScriptRoot 'apply-dependency-patches.ps1') -Workspace $Workspace -Dependency FNA3D
+& (Join-Path $PSScriptRoot 'apply-dependency-patches.ps1') -Workspace $Workspace -Dependency MojoShader
 $bash = Join-Path $DevkitPro "msys2\usr\bin\bash.exe"
 if (-not (Test-Path -LiteralPath $bash -PathType Leaf)) {
     throw "devkitPro bash was not found at $bash"

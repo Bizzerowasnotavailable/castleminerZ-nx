@@ -1,0 +1,77 @@
+[
+  {
+    "name": "Billboard",
+    "parameters": ["World", "View", "Projection", "ViewportScale", "AlphaTestDirection", "AlphaTestThreshold", "Texture", "TextureSampler"],
+    "techniques": ["AxisAlignedBillboards |", "ScreenAlignedBillboards |"],
+    "shapes": []
+  },
+  {
+    "name": "BlockEffect",
+    "parameters": ["World", "View", "Projection", "FaceMatrices", "WorldBase", "SunLight", "TorchLight", "FogColor", "AmbientSun", "SunSpecular", "LightDirection", "EyePosition", "LightOffset", "WaterLevel", "EyeWaterConstants", "BelowWaterColor", "WaterDepth", "VertexUVs", "DiffuseAlphaTexture", "NormalSpecTexture", "MetalLightTexture", "EnvMapTexture", "MipMapSpecularTexture", "MipMapDiffuseTexture", "DiffuseAlphaSampler", "MipMapSpecularSampler", "MipMapDiffuseSampler", "NormalSpecSampler", "MetalLightSampler", "EnvSampler", "InverseWorld", "CubeScaleSunTorch", "CubeTx"],
+    "techniques": [
+      "BlockAboveWaterTechnique |SpecularMaterials |MetalMaterials |Reflections",
+      "BlockBelowWaterTechnique |SpecularMaterials |MetalMaterials",
+      "BlockNoWaterTechnique |SpecularMaterials |MetalMaterials",
+      "EntityAboveWaterTechnique |SpecularMaterials |MetalMaterials |Reflections",
+      "EntityBelowWaterTechnique |SpecularMaterials |MetalMaterials",
+      "EntityNoWaterTechnique |SpecularMaterials |MetalMaterials |SpecularUI |MetalUI"
+    ],
+    "shapes": [
+      "World type=3 class=2 rows=4 columns=4 elements=0 semantic=",
+      "FaceMatrices type=3 class=2 rows=4 columns=4 elements=6 semantic=",
+      "VertexUVs type=3 class=1 rows=1 columns=4 elements=4 semantic=",
+      "CubeTx type=2 class=0 rows=1 columns=1 elements=6 semantic="
+    ]
+  },
+  {
+    "name": "CrackEffect",
+    "parameters": ["worldMatrix", "mvpMatrix", "worldViewMatrix", "diffuseTexture", "crackAmount", "diffuseSampler"],
+    "techniques": ["Default |p0"],
+    "shapes": ["mvpMatrix type=3 class=2 rows=4 columns=4 elements=0 semantic=WorldViewProj"]
+  },
+  {
+    "name": "DiffuseAnimUV",
+    "parameters": ["worldMatrix", "mvpMatrix", "worldViewMatrix", "uvOffset", "diffuseTexture", "diffuseSampler"],
+    "techniques": ["Default |p0"],
+    "shapes": ["mvpMatrix type=3 class=2 rows=4 columns=4 elements=0 semantic=WorldViewProj"]
+  },
+  {
+    "name": "GradientSkyEffect",
+    "parameters": ["World", "View", "Projection", "TextureWidth", "Blender", "Texture", "Sampler"],
+    "techniques": ["Technique1 |Pass1"],
+    "shapes": []
+  },
+  {
+    "name": "ParticleEffect",
+    "parameters": ["World", "View", "Projection", "ViewportScale", "CurrentTime", "FadeOut", "Duration", "DurationRandomness", "StartRotation", "Gravity", "EndVelocity", "MinColor", "MaxColor", "RotateSpeed", "StartSize", "EndSize", "Texture", "Sampler"],
+    "techniques": ["Particles |P0"],
+    "shapes": ["FadeOut type=1 class=0 rows=1 columns=1 elements=0 semantic="]
+  },
+  {
+    "name": "SkySphere",
+    "parameters": ["World", "View", "Projection", "Texture", "SkyboxS"],
+    "techniques": ["SkyboxTechnique |P0"],
+    "shapes": []
+  },
+  {
+    "name": "TextureSky",
+    "parameters": ["World", "View", "Projection", "Offset", "Sky1Texture", "Sky2Texture", "Blender", "LerpAmount", "LerpColor", "CloudOffset", "Sampler1", "Sampler2", "ambientColor"],
+    "techniques": ["Default |p0"],
+    "shapes": [
+      "World type=3 class=2 rows=4 columns=4 elements=0 semantic=",
+      "CloudOffset type=3 class=2 rows=3 columns=4 elements=0 semantic="
+    ]
+  },
+  {
+    "name": "Tracer",
+    "parameters": ["World", "View", "Projection"],
+    "techniques": ["Technique1 |Pass1"],
+    "shapes": []
+  },
+  {
+    "name": "WaterEffect",
+    "parameters": ["World", "View", "Projection", "Reflection", "EyePos", "LightDirection", "SunLightColor", "TorchLightColor", "WaterColor", "Time", "WaveHeight2", "SpecularPower", "FresnelPower", "FresnelMultiplier", "FresnelAdder", "NormalSmoother", "UnderWaterFresnelPower", "UnderWaterFresnelMultiplier", "ReflectionTexture", "NormalTexture", "ReflectionSampler", "NormalSampler"],
+    "techniques": ["Technique1 |Pass1 |Pass2", "Technique2 |Pass1 |Pass2"],
+    "shapes": []
+  }
+]

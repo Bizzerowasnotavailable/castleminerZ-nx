@@ -75,6 +75,13 @@ try
         Check(
             "Guide routes to CastleMinerZ.XnaCompat",
             guide.Scope is AssemblyNameReference { Name: "CastleMinerZ.XnaCompat" });
+
+        MethodDefinition crash = module.GetType("DNA.DNAGame").Methods.Single(method => method.Name == "CrashGame");
+        Check("Original game exceptions receive one diagnostic hook",
+            crash.Body.Instructions.Count(instruction =>
+                instruction.Operand is MethodReference method &&
+                method.DeclaringType.FullName == "CastleMinerZ.XnaCompat.RuntimeDiagnostics" &&
+                method.Name == "ReportException") == 1);
     }
 
     // Running the relinker on its own output must be a byte-identical pass-through.
@@ -218,6 +225,16 @@ static void CreateSyntheticAssembly(string path)
     timeBody.Emit(OpCodes.Newobj, constructor);
     timeBody.Emit(OpCodes.Callvirt, totalGameTime);
     timeBody.Emit(OpCodes.Ret);
+
+    // This is a synthetic public-interface fixture, not a game method body.
+    var dnaGame = new TypeDefinition("DNA", "DNAGame", TypeAttributes.Public | TypeAttributes.Class,
+        module.TypeSystem.Object);
+    module.Types.Add(dnaGame);
+    var crashGame = new MethodDefinition("CrashGame", MethodAttributes.Public, module.TypeSystem.Void);
+    crashGame.Parameters.Add(new ParameterDefinition(new TypeReference("System", "Exception", module,
+        module.TypeSystem.CoreLibrary)));
+    crashGame.Body.GetILProcessor().Emit(OpCodes.Ret);
+    dnaGame.Methods.Add(crashGame);
 
     assembly.Write(path, new WriterParameters { WriteSymbols = false, Timestamp = 0 });
 }

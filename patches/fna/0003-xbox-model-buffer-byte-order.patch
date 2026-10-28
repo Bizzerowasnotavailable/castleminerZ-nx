@@ -1,0 +1,104 @@
+diff --git a/src/Content/ContentReaders/VertexBufferReader.cs b/src/Content/ContentReaders/VertexBufferReader.cs
+--- a/src/Content/ContentReaders/VertexBufferReader.cs
++++ b/src/Content/ContentReaders/VertexBufferReader.cs
+@@ -12,6 +12,7 @@
+ #endregion
+ 
+ #region Using Statements
++using System;
+ using Microsoft.Xna.Framework.Graphics;
+ #endregion
+ 
+@@ -29,6 +30,59 @@ namespace Microsoft.Xna.Framework.Content
+ 			int vertexCount = (int) input.ReadUInt32();
+ 			byte[] data = input.ReadBytes(vertexCount * declaration.VertexStride);
+ 
++			if (input.platform == 'x')
++			{
++				foreach (VertexElement element in declaration.GetVertexElements())
++				{
++					int wordSize;
++					int elementSize;
++					switch (element.VertexElementFormat)
++					{
++						case VertexElementFormat.Single:
++						case VertexElementFormat.Color:
++						case VertexElementFormat.Byte4:
++							wordSize = 4; elementSize = 4; break;
++						case VertexElementFormat.Vector2:
++							wordSize = 4; elementSize = 8; break;
++						case VertexElementFormat.Vector3:
++							wordSize = 4; elementSize = 12; break;
++						case VertexElementFormat.Vector4:
++							wordSize = 4; elementSize = 16; break;
++						case VertexElementFormat.Short2:
++						case VertexElementFormat.NormalizedShort2:
++						case VertexElementFormat.HalfVector2:
++							wordSize = 2; elementSize = 4; break;
++						case VertexElementFormat.Short4:
++						case VertexElementFormat.NormalizedShort4:
++						case VertexElementFormat.HalfVector4:
++							wordSize = 2; elementSize = 8; break;
++						default:
++							throw new ContentLoadException(
++								"Unsupported Xbox vertex element format: " +
++								element.VertexElementFormat
++							);
++					}
++					if (element.Offset < 0 ||
++						element.Offset > declaration.VertexStride - elementSize)
++					{
++						throw new ContentLoadException(
++							"Xbox vertex element exceeds the declared stride."
++						);
++					}
++
++					// Swap scalar words, not whole vertices: packed shorts and
++					// float components have different widths. Preserve padding.
++					for (int vertex = 0; vertex < vertexCount; vertex += 1)
++					{
++						int start = vertex * declaration.VertexStride + element.Offset;
++						for (int component = 0; component < elementSize; component += wordSize)
++						{
++							Array.Reverse(data, start + component, wordSize);
++						}
++					}
++				}
++			}
++
+ 			VertexBuffer buffer = new VertexBuffer(
+ 				input.ContentManager.GetGraphicsDevice(),
+ 				declaration,
+diff --git a/src/Content/ContentReaders/IndexBufferReader.cs b/src/Content/ContentReaders/IndexBufferReader.cs
+--- a/src/Content/ContentReaders/IndexBufferReader.cs
++++ b/src/Content/ContentReaders/IndexBufferReader.cs
+@@ -8,6 +8,7 @@
+ #endregion
+ 
+ #region Using Statements
++using System;
+ using Microsoft.Xna.Framework.Graphics;
+ #endregion
+ 
+@@ -25,6 +26,21 @@ namespace Microsoft.Xna.Framework.Content
+ 			bool sixteenBits = input.ReadBoolean();
+ 			int dataSize = input.ReadInt32();
+ 			byte[] data = input.ReadBytes(dataSize);
++			if (input.platform == 'x')
++			{
++				int wordSize = sixteenBits ? 2 : 4;
++				if (data.Length % wordSize != 0)
++				{
++					throw new ContentLoadException(
++						"Xbox index buffer length is not a whole number of indices."
++					);
++				}
++				for (int offset = 0; offset < data.Length; offset += wordSize)
++				{
++					Array.Reverse(data, offset, wordSize);
++				}
++			}
++
+ 			if (indexBuffer == null)
+ 			{
+ 				if (sixteenBits)

@@ -144,6 +144,7 @@ public sealed class LocalNetworkGamer : NetworkGamer
         : base(session, id, signedInGamer.Gamertag, isLocal: true, isHost)
     {
         SignedInGamer = signedInGamer;
+        LocalProfile = signedInGamer.LocalProfile;
     }
 
     public SignedInGamer SignedInGamer { get; }

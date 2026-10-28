@@ -125,8 +125,9 @@ not Switch-specific hacks.
 ## Managed AOT preparation
 
 `tools/managed-aot-prep` rewrites the compiled FNA assembly before ILLink runs.
-It has two transforms, both applied to the binary only so the pinned FNA source
-stays pristine:
+Its transforms apply to the binary only. Separate checked dependency patches
+implement the effect loader, Xbox cubemap/model-buffer byte order, GLSL ES
+volume-sampler precision and reliable native file diagnostics:
 
 - `--stub <Type>::<Method>` replaces a method body with `return;`. Used for
   `Microsoft.Xna.Framework.FNADllMap::Init`, a `[ModuleInitializer]` whose XML
@@ -138,6 +139,9 @@ stays pristine:
   SDL3 and Emscripten bindings would otherwise leave `SDL_OpenGamepad`,
   `emscripten_set_main_loop` and hundreds of siblings undefined at link time.
   The build passes `SDL3` and `__Native`; FNA is forced onto SDL2.
+- `--stub-pinvoke-name <entry point>` handles unused Android, WinRT and Apple
+  SDL2 imports that the Switch SDL2 archive does not export. Unused video-decoder
+  modules are also stubbed for the game build.
 
 The tool is deterministic (content-derived MVID), idempotent, refuses
 strong-named inputs and in-place rewrites, and re-verifies the written assembly
@@ -187,3 +191,136 @@ It generates a small assembly that references a synthetic legacy XNA scope,
 proves that `GameTime` routes to FNA while `Guide` routes to
 `CastleMinerZ.XnaCompat`, and checks reference pruning, determinism, and
 idempotence. No game content is involved.
+
+## Replacement effects
+
+The ten `.fx` files in `shaders/effects` are project-authored approximations, not
+decompiled or translated Xbox shaders. Only their public effect interfaces and
+vertex layouts are preserved. Compile them on Windows with the installed DirectX
+June 2010 runtime (`d3dx9_43.dll` matching the .NET host architecture):
+
+```powershell
+./scripts/build-effects.ps1
+./scripts/test-effects.ps1
+```
+
+Outputs stay in the external workspace. Tests use the pinned MojoShader parser
+and GLSL ES 3 translator and verify parameter names, selected layouts, semantics,
+and numeric technique/pass order. These checks do not prove driver compilation
+or visual correctness on a Switch. Xbox state enum numbers are not copied into
+PC effects; sources use named D3D9 sampler/render states instead.
+
+An optional WSL `glslangValidator` path enables strict compilation of every
+translated shader stage (tested with glslang 16.2.0):
+
+```powershell
+./scripts/test-effects.ps1 -GlslangValidator /path/to/glslangValidator
+```
+
+All 58 stages pass this check. Driver linking, rendering and performance still
+require runtime tests.
+
+`scripts/apply-dependency-patches.ps1` checks each patch in both directions, is
+idempotent, and refuses an unexpected dependency source state. The native build
+applies the FNA3D and MojoShader patches; game builds apply the FNA and mono-nx
+patches.
+
+The FNA3D patch recognizes `CMZ_FIRST_ENVIRONMENT_SLICE_ONLY=1`, set by the
+native host. The current `BlockEffect` samples the four-layer environment volume
+only at Z `0.125`, the center of slice zero. The patch uploads only that slice
+for level-zero, depth-four updates starting at Z zero; all other uploads retain
+their original depth. This removes Eden's unsupported layered-DMA warnings.
+Disable or revise this optimization if a shader begins sampling other layers.
+
+## Content reader regression tests
+
+```powershell
+./scripts/test-content-readers.ps1
+```
+
+The test compiles the pinned FNA `TextureCubeReader` and `X360TexUtil` sources
+against a recording graphics boundary. It checks all six faces and four mip
+levels, including dimensions smaller than one DXT block, for Xbox Color/BGRA and
+DXT1/3/5 data, desktop passthrough, and existing texture reuse. All 480 synthetic
+face/mip uploads must match their expected linear bytes. No assets or native GPU
+libraries are used. The test failed against the original unswapped reader and
+passes with `0002-xbox-cubemap-byte-order.patch`.
+
+The same harness compiles FNA's real vertex declaration, vertex buffer and index
+buffer readers. It checks all XNA vertex formats, mixed/interleaved attributes,
+untouched stride padding, empty buffers, both index widths, existing index
+buffer reuse, desktop passthrough and malformed Xbox declarations. The recording
+boundary links the dependency's actual graphics enums rather than inventing
+different numeric format values.
+
+For read-only diagnostics of a privately extracted model or cubemap:
+
+```powershell
+./scripts/audit-content.ps1 -Asset C:\path\to\private\Content\Torch.xnb
+```
+
+This bounded XNB v5/LZX audit prints only reader/layout metadata, position bounds
+under each byte order, and index-range counts. It never writes decompressed or
+converted content. It supports plain models with null tags and BasicEffect
+resources, plus cubemaps; unknown layouts fail rather than guessing. The torch
+and pickaxe have plausible big-endian model bounds and valid big-endian indices,
+but invalid little-endian ranges before conversion.
+
+## Private game build
+
+With privately extracted original assemblies available outside the repository:
+
+```powershell
+./scripts/build-game.ps1 -ManagedSource C:\path\to\private\584E07D1
+```
+
+Close Eden before replacing the NRO: Windows keeps the running image open.
+If only the final copy fails, the completed NRO remains in the external
+`cmz-game-stage/native/aot/` directory. Its matching trimmed game assemblies are
+under `output/`; deploy both together after stopping the emulator.
+
+The script relinks, trims and AOT-compiles the private assemblies. It keeps their
+matching trimmed IL on the SD card under `switch/castleminerz/managed/`; neither
+game assembly goes into RomFS. The host preloads `DNA.Common.dll` from that same
+directory before opening the executable because Mono resolves static-AOT
+dependencies before establishing the entry assembly's base directory.
+
+RomFS contains the runtime/framework, compatibility assembly and project-authored
+replacement FXBs, never extracted game content. The NRO contains private generated
+game AOT machine code and is ignored, not a redistributable source-project build.
+Never commit it, the extracted inputs, the AOT objects, or shader caches.
+
+The corlib AOT step reserves 16,384 generic trampolines; 4,096 was exhausted during
+game startup. All game AOT assembly and native linking outputs remain external.
+The native host writes `host.log`, and the default config redirects runtime output
+to `runtime.log`, under `sdmc:/switch/castleminerz-logs/`. An SD `aot_config.ini`
+there overrides the embedded configuration. File diagnostics are unbuffered so
+native crashes do not hide the last messages.
+
+Local-profile behavior and tests are documented in
+[`local-profiles.md`](local-profiles.md). Neither the native host nor managed
+compatibility layer contacts Nintendo Account or Xbox Live services.
+
+## Eden runtime capture
+
+Use Eden's **Tools → Capture Screenshot** for visual checks. Windows desktop
+captures can show a black game window even when rendering works. The optional
+Windows helper targets an explicitly selected, already-running game process:
+
+```powershell
+./scripts/eden-input.ps1 -ProcessId <eden-pid> -Key Start -Capture
+```
+
+It assumes the development keyboard mapping `M` = Plus/Start, `C` = A/accept,
+`X` = B/back, arrow keys = d-pad, and WASD = left stick. It does not launch
+another emulator or change controls. Screenshots are asynchronous; enumerate the newest PNG in
+Eden's screenshot directory in a subsequent call. These private GPU captures
+contain game imagery and must not be committed.
+
+The native host sets `FNA_GAMEPAD_IGNORE_PHYSICAL_LAYOUT=1`, but the pinned
+Switch SDL backend ignores that label hint for its fixed controller mapping.
+`SDL_GAMECONTROLLERCONFIG` therefore overrides only the built-in libnx GUID
+with A/B/X/Y mapped by Nintendo label. The original stick, trigger, shoulder and
+d-pad bindings are retained. Without that override, physical Switch A reaches
+the game as Xbox B/back. Recheck the GUID and runtime mapping if the SDL port is
+updated; the tested log shows `a:b0,b:b1,x:b2,y:b3`.

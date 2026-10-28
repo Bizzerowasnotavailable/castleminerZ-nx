@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="$(FnaSource)/src/Content/ContentReaders/TextureCubeReader.cs" Link="TextureCubeReader.cs" />
+    <Compile Include="$(FnaSource)/src/Graphics/X360TexUtil.cs" Link="X360TexUtil.cs" />
+    <Compile Include="$(FnaSource)/src/Content/ContentReaders/VertexBufferReader.cs" Link="VertexBufferReader.cs" />
+    <Compile Include="$(FnaSource)/src/Content/ContentReaders/VertexDeclarationReader.cs" Link="VertexDeclarationReader.cs" />
+    <Compile Include="$(FnaSource)/src/Content/ContentReaders/IndexBufferReader.cs" Link="IndexBufferReader.cs" />
+    <Compile Include="$(FnaSource)/src/Graphics/SurfaceFormat.cs" Link="SurfaceFormat.cs" />
+    <Compile Include="$(FnaSource)/src/Graphics/CubeMapFace.cs" Link="CubeMapFace.cs" />
+    <Compile Include="$(FnaSource)/src/Graphics/Vertices/VertexElementFormat.cs" Link="VertexElementFormat.cs" />
+    <Compile Include="$(FnaSource)/src/Graphics/Vertices/VertexElementUsage.cs" Link="VertexElementUsage.cs" />
+    <Compile Include="$(FnaSource)/src/Graphics/Vertices/BufferUsage.cs" Link="BufferUsage.cs" />
+    <Compile Include="$(FnaSource)/src/Graphics/Vertices/IndexElementSize.cs" Link="IndexElementSize.cs" />
+  </ItemGroup>
+  <Target Name="ValidateFnaSource" BeforeTargets="PrepareForBuild">
+    <Error Condition="!Exists('$(FnaSource)/src/Content/ContentReaders/TextureCubeReader.cs')"
+           Text="Set FnaSource to the pinned, patched FNA checkout." />
+  </Target>
+</Project>

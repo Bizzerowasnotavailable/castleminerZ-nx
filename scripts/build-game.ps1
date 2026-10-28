@@ -14,6 +14,12 @@ param(
 
 $ErrorActionPreference = "Stop"
 $repo = Split-Path -Parent $PSScriptRoot
+$Workspace = [IO.Path]::GetFullPath($Workspace)
+$repoFull = [IO.Path]::GetFullPath($repo).TrimEnd('\')
+if ($Workspace.Equals($repoFull, [StringComparison]::OrdinalIgnoreCase) -or
+    $Workspace.StartsWith($repoFull + '\', [StringComparison]::OrdinalIgnoreCase)) {
+    throw 'The game build workspace must stay outside the repository.'
+}
 $monoSource = Join-Path $Workspace 'mono-nx'
 $sdk = Join-Path $Workspace 'mono-nx-sdk-rel-3'
 $monoRoot = Join-Path $sdk 'dotnet_runtime'
@@ -26,6 +32,7 @@ $stageAot = Join-Path $stage 'native\aot'
 $bash = Join-Path $DevkitPro 'msys2\usr\bin\bash.exe'
 $runtimePack = Join-Path $monoRoot 'artifacts\bin\runtime\net9.0-libnx-Debug-arm64'
 $coreLib = Join-Path $monoRoot 'artifacts\bin\mono\libnx.arm64.Debug\System.Private.CoreLib.dll'
+& (Join-Path $PSScriptRoot 'apply-dependency-patches.ps1') -Workspace $Workspace -Dependency mono-nx
 
 foreach ($required in @(
     (Join-Path $monoSource '.git'),
@@ -90,7 +97,7 @@ foreach ($relative in $trackedNativeFiles) {
 
 $stageSource = Join-Path $stageAot 'source'
 Remove-Item -LiteralPath (Join-Path $stageSource 'main.c') -Force
-foreach ($name in @('main.cpp', 'sdl_paths.cpp', 'host_paths.h')) {
+foreach ($name in @('main.cpp', 'sdl_paths.cpp', 'host_paths.h', 'local_profile.cpp', 'local_profile.h')) {
     Copy-Item -LiteralPath (Join-Path $repo "runtime-probe\native\$name") `
         -Destination (Join-Path $stageSource $name) -Force
 }
@@ -112,6 +119,9 @@ foreach ($path in @($fnaProject, $compatProject)) {
         throw "Missing managed compatibility prerequisite: $path. See docs/toolchain.md."
     }
 }
+
+& (Join-Path $PSScriptRoot 'apply-dependency-patches.ps1') -Workspace $Workspace -Dependency FNA
+& (Join-Path $PSScriptRoot 'build-effects.ps1') -Workspace $Workspace
 
 & dotnet build $fnaProject -c Release --nologo
 if ($LASTEXITCODE -ne 0) {
@@ -306,8 +316,12 @@ $lines = @(
     ': > mono_aot.log',
     'shopt -s nullglob',
     'for file in output/*.dll output/*.exe; do',
+    '    EXTRA_AOT=""',
+    '    if [[ "$file" == "output/System.Private.CoreLib.dll" ]]; then',
+    '        EXTRA_AOT=",ntrampolines=16384"',
+    '    fi',
     $aotInvocation,
-    '        --aot=full,static,direct-icalls,direct-pinvoke,tool-prefix=aarch64-linux-gnu- "$file" >> mono_aot.log 2>&1; then',
+    '        --aot=full,static,direct-icalls,direct-pinvoke,tool-prefix=aarch64-linux-gnu-"$EXTRA_AOT" "$file" >> mono_aot.log 2>&1; then',
     '        echo "AOT failed for $file" >&2',
     '        tail -40 mono_aot.log >&2',
     '        exit 1',
@@ -337,18 +351,35 @@ if (Test-Path -LiteralPath $romfs) {
 }
 New-Item -ItemType Directory -Force -Path $romfs | Out-Null
 foreach ($file in Get-ChildItem -Path (Join-Path $output '*') -Include '*.dll', '*.exe' -File) {
+    if ($file.Name -in @('CastleMinerZ.exe', 'DNA.Common.dll')) {
+        continue
+    }
     Copy-Item -LiteralPath $file.FullName -Destination $romfs -Force
+}
+$romfsEffects = Join-Path $romfs 'effects'
+New-Item -ItemType Directory -Path $romfsEffects | Out-Null
+# Use an explicit source-derived allowlist, never a glob over private game data.
+foreach ($source in Get-ChildItem -LiteralPath (Join-Path $repo 'shaders\effects') -Filter '*.fx' -File) {
+    Copy-Item -LiteralPath (Join-Path $Workspace "replacement-effects\$($source.BaseName).fxb") `
+        -Destination $romfsEffects
+}
+foreach ($name in @('CastleMinerZ.exe', 'DNA.Common.dll')) {
+    if (Test-Path -LiteralPath (Join-Path $romfs $name)) {
+        throw "Game assembly must not be staged in RomFS: $name"
+    }
 }
 Copy-Item -LiteralPath (Join-Path $icuRoot 'share\icu\77.1\icudt77l.dat') -Destination $romfs -Force
 
 $config = @(
     '[mono]',
+    'logging = true',
     'icu = romfs:/icudt77l.dat',
     'assembly_dir = romfs:/',
     'config_dir = romfs:/',
     'default_assembly = sdmc:/switch/castleminerz/managed/CastleMinerZ.exe',
     '',
     '[nx]',
+    'file_io_redirect = sdmc:/switch/castleminerz-logs/runtime.log',
     'exit_process_on_end = true'
 )
 [IO.File]::WriteAllText(

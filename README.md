@@ -10,7 +10,7 @@ porting framework for the Xbox Live Indie Games release of **CastleMiner Z**.
 
 ## Current status
 
-**Managed compatibility milestone; not yet playable.** The project currently:
+**Offline world milestone; not yet validated as playable.** The project currently:
 
 - builds a real ARM64 `.nro` with devkitA64/libnx;
 - finds a user-provided STFS package on the SD card;
@@ -24,14 +24,25 @@ porting framework for the Xbox Live Indie Games release of **CastleMiner Z**.
 - deterministically relinks privately extracted game assemblies onto FNA plus
   that compatibility assembly, with every type and member verified;
 - links the full native graphics stack (SDL2 → EGL → switch-mesa GLES 3.0 →
-  FNA3D → MojoShader) into a 6.3 MB native hardware probe NRO; and
+  FNA3D → MojoShader) into a 6.3 MB native hardware probe NRO;
 - runs FNA itself inside the Mono static-AOT image: the managed probe creates a
   real `GraphicsDevice`, clears and presents 240 frames, attempts a
   `SpriteBatch` draw, and links the same FNA3D/Mesa/FAudio archives with no
-  undefined symbols.
+  undefined symbols;
+- runs the user's relinked, statically AOT-compiled game in Eden, passes player
+  loading, and enters an offline world with terrain, sky and HUD rendering, while
+  reading assets directly through the STFS filesystem;
+- builds ten project-authored replacement effects for the Xbox GPU binaries,
+  with MojoShader GLSL ES 3 translation and interface tests;
+- corrects Xbox cubemap and raw model-buffer byte order: the sky, hotbar item
+  icons and held models now render in Eden; and
+- maps the selected local Switch user's nickname and picture onto the offline
+  gamer API, with UID-scoped storage and no linked Nintendo Account requirement
+  (see [`docs/local-profiles.md`](docs/local-profiles.md)).
 
-**Next milestone:** confirm both probes on physical hardware, then serve the
-package through a libnx filesystem so `ContentManager` can load the game's XNBs.
+**Current runtime work:** finish avatar/held-item poses and validate inventory,
+combat, audio, and save/load. Hardware, account-selector, and complete gameplay
+validation remain outstanding.
 
 The graphics backend is settled: switch-mesa behind SDL2, not deko3d. deko3d
 has no FNA3D driver in any public tree, so using it now would mean writing a
@@ -58,6 +69,11 @@ sdmc:/switch/castleminerz/game/584E07D2/00000002/<package>
 
 The NRO recursively searches `sdmc:/switch/castleminerz/game` and reads assets
 directly from the package. It does not copy game data into the NRO or RomFS.
+
+The development game build additionally loads the user's privately relinked
+`CastleMinerZ.exe` and `DNA.Common.dll` from
+`sdmc:/switch/castleminerz/managed/`, never RomFS. Its generated game AOT code is
+private build output, not a distributable project-authored game executable.
 
 ## Build the Switch bootstrap
 

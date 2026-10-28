@@ -1,0 +1,13 @@
+diff --git a/native/shared/io_util.c b/native/shared/io_util.c
+--- a/native/shared/io_util.c
++++ b/native/shared/io_util.c
+@@ -228,6 +228,9 @@ int io_stdio_to_file(const char* filename)
+     if (!file_log_handle)
+         return -1;
+ 
++    // Preserve the last diagnostic even when the runtime or graphics driver
++    // terminates before the normal shutdown path closes this FILE.
++    setvbuf(file_log_handle, NULL, _IONBF, 0);
+     fprintf(file_log_handle, "--- starting log ---\n");
+ 
+     if (redirect_newlib_io(file_log_write) < 0)

@@ -17,6 +17,7 @@
 *.nacp
 *.map
 *.pdb
+*.fxb
 
 # User-owned game data and generated derivatives
 /private/

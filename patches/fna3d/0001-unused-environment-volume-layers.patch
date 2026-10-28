@@ -1,0 +1,24 @@
+diff --git a/src/FNA3D_Driver_OpenGL.c b/src/FNA3D_Driver_OpenGL.c
+--- a/src/FNA3D_Driver_OpenGL.c
++++ b/src/FNA3D_Driver_OpenGL.c
+@@ -3998,6 +3998,10 @@ static void OPENGL_SetTextureData3D(
+ 	BindTexture(renderer, glTexture);
+ 
+ 	renderer->glTexSubImage3D(
++		/* The CMZ replacement samples only layer zero of its four-layer
++		 * environment volume. Avoid unused layered DMA uploads in Eden.
++		 * Other applications and volume uploads retain their full depth.
++		 */
+ 		GL_TEXTURE_3D,
+ 		level,
+ 		x,
+@@ -4005,7 +4009,8 @@ static void OPENGL_SetTextureData3D(
+ 		z,
+ 		w,
+ 		h,
+-		d,
++		(z == 0 && d == 4 && level == 0 && SDL_GetHintBoolean(
++			"CMZ_FIRST_ENVIRONMENT_SLICE_ONLY", SDL_FALSE)) ? 1 : d,
+ 		XNAToGL_TextureFormat[glTexture->format],
+ 		XNAToGL_TextureDataType[glTexture->format],
+ 		data
