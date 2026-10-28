@@ -44,6 +44,8 @@ porting framework for the Xbox Live Indie Games release of **CastleMiner Z**.
 combat, audio, and save/load. Hardware, account-selector, and complete gameplay
 validation remain outstanding.
 
+**Eden status (Oct 2026):** The game is now somewhat playable — it enters an offline world with terrain, sky, HUD, hotbar icons, and held models rendering correctly. The procedural 71-bone avatar mesh is implemented (stick-figure rig matching `AvatarBone` enum) so held-item pose transforms work; actual mesh rendering still needs GraphicsDevice integration. Gameplay remains buggy: inventory, combat, audio, and save/load still need full testing. No physical hardware run completed yet.
+
 The graphics backend is settled: switch-mesa behind SDL2, not deko3d. deko3d
 has no FNA3D driver in any public tree, so using it now would mean writing a
 driver and a shader backend before anything renders. The reasoning and the
