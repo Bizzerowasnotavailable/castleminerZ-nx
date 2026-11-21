@@ -15,6 +15,11 @@ constexpr std::uint64_t kMinimumPackageSize = 0xD000;
 constexpr std::uint32_t kMinimumTableBlocks = 16;
 constexpr std::uint32_t kMaximumTableBlocks = 4096;
 constexpr std::size_t kEntrySize = 64;
+// Data blocks covered by one hash table block; the physical layout restarts
+// after each group (see block_adjustment).
+constexpr std::uint32_t kBlocksPerHashTable = 170;
+// Read-ahead for managed readers, which issue many small reads from one file.
+constexpr std::size_t kReadBufferSize = 0x10000;
 
 std::uint16_t read_be16(const std::uint8_t* p) {
     return static_cast<std::uint16_t>((p[0] << 8) | p[1]);
@@ -73,6 +78,13 @@ bool StfsPackage::open(const std::string& path, std::string& error) {
     if (file_ == nullptr) {
         error = io_error("Unable to open STFS package");
         return false;
+    }
+
+    // Must be set before the first read. A larger buffer turns the many small
+    // reads a managed reader issues into one SD-card access per buffer fill.
+    read_buffer_.resize(kReadBufferSize);
+    if (std::setvbuf(file_, read_buffer_.data(), _IOFBF, read_buffer_.size()) != 0) {
+        read_buffer_.clear();
     }
 
     if (std::fseek(file_, 0, SEEK_END) != 0) {
@@ -215,6 +227,10 @@ void StfsPackage::close() {
         std::fclose(file_);
         file_ = nullptr;
     }
+    // Only after fclose: the stream must not outlive its buffer.
+    read_buffer_.clear();
+    read_buffer_.shrink_to_fit();
+    stream_position_ = kUnknownStreamPosition;
     package_path_.clear();
     package_magic_.clear();
     entries_.clear();
@@ -323,8 +339,13 @@ bool StfsPackage::read_range(const StfsEntry& entry, std::size_t offset,
         const std::uint64_t physical = static_cast<std::uint64_t>(data_start_) +
             static_cast<std::uint64_t>(logical_block) * kBlockSize +
             block_adjustment(logical_block, hash_stride_) + offset_in_block;
-        const std::size_t amount = std::min<std::size_t>(
-            remaining, kBlockSize - offset_in_block);
+        // Blocks stay physically consecutive up to the next hash table, so one
+        // read covers that whole run instead of one seek and read per block.
+        const std::uint32_t blocks_in_run =
+            kBlocksPerHashTable - logical_block % kBlocksPerHashTable;
+        const std::size_t run_bytes =
+            static_cast<std::size_t>(blocks_in_run) * kBlockSize - offset_in_block;
+        const std::size_t amount = std::min<std::size_t>(remaining, run_bytes);
 
         if (!seek_and_read(physical, destination, amount, error)) {
             return false;
@@ -381,8 +402,8 @@ bool StfsPackage::extract(const StfsEntry& entry,
 std::uint64_t StfsPackage::block_adjustment(std::uint32_t block,
                                             std::uint32_t hash_stride) {
     std::uint64_t result = 0;
-    while (block >= 170) {
-        block /= 170;
+    while (block >= kBlocksPerHashTable) {
+        block /= kBlocksPerHashTable;
         result += static_cast<std::uint64_t>(block + 1) * hash_stride;
     }
     return result;
@@ -432,14 +453,22 @@ bool StfsPackage::seek_and_read(std::uint64_t offset, void* output,
         error = "STFS offset is not representable on this platform";
         return false;
     }
-    if (std::fseek(file_, static_cast<long>(offset), SEEK_SET) != 0) {
-        error = io_error("Unable to seek STFS package");
-        return false;
+    // Sequential reads arrive exactly where the previous one ended. Skipping
+    // fseek there keeps the stdio buffer, so small reads cost no SD access.
+    if (stream_position_ != offset) {
+        stream_position_ = kUnknownStreamPosition;
+        if (std::fseek(file_, static_cast<long>(offset), SEEK_SET) != 0) {
+            error = io_error("Unable to seek STFS package");
+            return false;
+        }
+        stream_position_ = offset;
     }
     if (length > 0 && std::fread(output, 1, length, file_) != length) {
+        stream_position_ = kUnknownStreamPosition;
         error = io_error("Unable to read STFS package");
         return false;
     }
+    stream_position_ = offset + length;
     return true;
 }
 

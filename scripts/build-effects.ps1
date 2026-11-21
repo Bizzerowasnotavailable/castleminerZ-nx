@@ -28,6 +28,17 @@ if ($LASTEXITCODE -ne 0) {
     throw 'Effect compiler build failed.'
 }
 
+# The compiler P/Invokes d3dx9_43.dll from the DirectX June 2010 runtime, which
+# needs d3dcompiler_43.dll. The loader checks the application directory first, so
+# the workspace copies, extracted from the Jun2010 x64 cabinets, are used without
+# installing anything. Both are needed beside the compiler.
+$compilerDirectory = Join-Path $build 'bin\Release\net8.0'
+$d3dxDirectory = Join-Path $Workspace 'd3dx9'
+if (Test-Path -LiteralPath (Join-Path $d3dxDirectory 'd3dx9_43.dll') -PathType Leaf) {
+    foreach ($runtime in Get-ChildItem -LiteralPath $d3dxDirectory -Filter '*.dll' -File) {
+        Copy-Item -LiteralPath $runtime.FullName -Destination $compilerDirectory -Force
+    }
+}
 $compiler = Join-Path $build 'bin\Release\net8.0\Cmz.EffectCompiler.dll'
 $sources = @(Get-ChildItem -LiteralPath (Join-Path $repo 'shaders\effects') -Filter '*.fx' -File |
     Sort-Object Name)

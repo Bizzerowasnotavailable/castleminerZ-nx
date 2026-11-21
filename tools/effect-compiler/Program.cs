@@ -7,6 +7,9 @@ internal static class Program
 {
     private const int CompileEffectSlot = 59;
 
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern bool SetDllDirectoryW(string path);
+
     [DllImport("d3dx9_43.dll", CharSet = CharSet.Unicode, ExactSpelling = true)]
     private static extern int D3DXCreateEffectCompilerFromFileW(
         string file, IntPtr defines, IntPtr include, uint flags,
@@ -63,6 +66,12 @@ internal static class Program
             string output = Path.GetFullPath(args[1]);
             if (source.Equals(output, StringComparison.OrdinalIgnoreCase))
                 throw new ArgumentException("Source and output must be different files.");
+
+            // The loader searches the host executable's directory, not this tool's.
+            // d3dx9_43.dll and its dependency d3dcompiler_43.dll sit beside this
+            // tool, so add this directory to the search path before loading.
+            if (!SetDllDirectoryW(AppContext.BaseDirectory))
+                throw new InvalidOperationException("Could not add the tool directory to the DLL search path.");
 
             int hr = D3DXCreateEffectCompilerFromFileW(
                 source, IntPtr.Zero, IntPtr.Zero, 0, out compiler, out parseErrors);

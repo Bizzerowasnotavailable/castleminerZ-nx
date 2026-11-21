@@ -101,13 +101,11 @@ relinks/trims/AOT-compiles them and produces a **new, complete private SD folder
 ```text
 sd-ready/
   switch/castleminerz.nro
-  switch/castleminerz/game/CastleMinerZ.stfs
-  switch/castleminerz/managed/CastleMinerZ.exe
-  switch/castleminerz/managed/DNA.Common.dll
+  switch/castleminerz/game/584E07D2/00000002/<package file>
   switch/castleminerz/build-manifest.json
 ```
 
-Copy the **entire `switch` folder** to your SD root, or into the SDMC directory
+Copy **`switch\castleminerz.nro` and the `switch\castleminerz` folder** to your SD root, or into the SDMC directory
 of the destination Eden installation. Use **File → Open Eden Folder** to locate
 the active Eden data folder; portable installations need not use `%APPDATA%`.
 The destination PC does not need the build tools. Keep existing saves, but move
@@ -119,16 +117,15 @@ With the game/Eden closed, verify the destination after copying:
 ./scripts/verify-game-install.ps1 -SdRoot 'C:\path\to\eden\sdmc'
 ```
 
-The verifier checks SHA-256 hashes of the package, NRO and both processed
-assemblies against the build manifest. Do not mix builds or substitute the
-original extracted assemblies. A package-only copy is **not** an installation.
+The verifier checks SHA-256 hashes of the NRO and the package against the build
+manifest. Do not mix builds: the NRO embeds the processed game assemblies that
+match one specific package. A package-only copy is **not** an installation.
 See [installation and troubleshooting](docs/installation.md) for prerequisites,
 rebuilds and the missing-`DNA.Common.dll` error.
 
-Assets still stream directly from the unmodified package. Advanced/manual builds
-can use any package filename under `sdmc:/switch/castleminerz/game/` (including
-the original `584E07D2/00000002/` layout); the prepared workflow uses the fixed
-filename above so the transfer can be checked without machine-specific paths.
+Assets still stream directly from the unmodified package. The game folder can
+hold your title folder as it came from the rip (`584E07D2/00000002/<file>`); the
+prepared workflow writes that same layout.
 
 ## Build the Switch bootstrap
 
@@ -231,15 +228,13 @@ assemblies would redistribute copyrighted game code and assets. Share the
 source, scripts, and documentation instead; each user must supply their own
 package and build locally.
 
-For personal use, transfer the complete output of `prepare-game.ps1`, not just
-the NRO. It includes your unmodified package, matching **processed** assemblies
-and a build manifest:
+For personal use, transfer the output of `prepare-game.ps1`: the NRO (which
+embeds the matching processed assemblies), your unmodified package in its title
+folder, and a build manifest:
 
 ```text
 sdmc:/switch/castleminerz.nro
-sdmc:/switch/castleminerz/game/CastleMinerZ.stfs
-sdmc:/switch/castleminerz/managed/CastleMinerZ.exe
-sdmc:/switch/castleminerz/managed/DNA.Common.dll
+sdmc:/switch/castleminerz/game/584E07D2/00000002/<package file>
 sdmc:/switch/castleminerz/build-manifest.json
 ```
 

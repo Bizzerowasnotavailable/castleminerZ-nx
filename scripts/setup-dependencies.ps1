@@ -108,7 +108,13 @@ foreach ($dependency in $lock.gitDependencies) {
         throw "Unexpected origin for $($dependency.name): $origin"
     }
 
-    $head = (& git -C $path rev-parse HEAD 2>$null).Trim()
+    # A freshly initialized repository has no HEAD yet. Windows PowerShell turns
+    # git's stderr into a terminating error under Stop, so read it with Continue.
+    $previousPreference = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    $headOutput = @(& git -C $path rev-parse --verify -q HEAD 2>$null)
+    $ErrorActionPreference = $previousPreference
+    $head = ($headOutput -join '').Trim()
     if ($head -ne $dependency.commit) {
         if ($VerifyOnly) {
             throw "$($dependency.name) is at $head; expected $($dependency.commit)."

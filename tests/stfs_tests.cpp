@@ -122,6 +122,22 @@ int main() {
         std::remove(path);
         return fail("partial boundary read failed");
     }
+    // Sequential chunks start where the previous read stopped, so they skip the
+    // seek, and the last chunk splits at the hash-table boundary inside a run.
+    std::vector<unsigned char> chunked(bytes.size());
+    for (std::size_t offset = 0; offset < chunked.size(); offset += 0x700) {
+        const std::size_t remaining = chunked.size() - offset;
+        const std::size_t amount = remaining < 0x700 ? remaining : 0x700;
+        if (!package.read_range(*crossing, offset, chunked.data() + offset, amount, error)) {
+            std::remove(path);
+            return fail("sequential chunked read failed");
+        }
+    }
+    if (chunked != bytes) {
+        std::remove(path);
+        return fail("sequential chunked read differs from whole-file read");
+    }
+
     if (package.read_range(*crossing, crossing->size, boundary, 1, error) ||
         error.empty()) {
         std::remove(path);

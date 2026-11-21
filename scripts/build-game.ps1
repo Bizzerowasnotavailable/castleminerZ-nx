@@ -3,15 +3,15 @@ param(
     [string]$DevkitPro = "C:\devkitPro",
     [string]$Workspace = (Join-Path $env:LOCALAPPDATA "Temp\opencode\castleminerz-deps"),
     [string]$ManagedSource = (Join-Path $env:LOCALAPPDATA "Temp\opencode\castleminerz-analysis\game-extracted\584E07D1"),
-    [string]$SdRoot = (Join-Path $env:APPDATA "eden\sdmc"),
     [string]$OutputDirectory = (Split-Path -Parent $PSScriptRoot)
 )
 
 # Builds a development NRO that runs the user's CastleMiner Z package through
 # the host's virtual root device. The package itself is never copied. The
-# relinked game assemblies are private, machine-local build outputs; they are
-# staged onto the SD card (or emulator SD directory) under managed/, not into
-# the repository or the NRO's RomFS.
+# relinked game assemblies are embedded in this private NRO's RomFS under
+# managed/, so the SD card needs only the NRO and the package's GOD folder. They
+# are private, machine-local outputs and must not be published; the repository
+# never contains them.
 
 $ErrorActionPreference = "Stop"
 $repo = Split-Path -Parent $PSScriptRoot
@@ -231,7 +231,10 @@ New-Item -ItemType Directory -Force -Path $output | Out-Null
 # (needed by FNA) contains ExtendedProtectionPolicyTypeConverter, which drags
 # in System.Net.Security and the OpenSSL entry points mono-nx does not ship.
 # Game assemblies, FNA and the compatibility assembly are roots, so their code
-# is preserved; only unused framework code is removed.
+# is preserved; only unused framework code is removed. CastleMinerZ.exe is an
+# application, so a bare -a roots only its entry point and trims every member
+# that is reached only through reflection, content readers, serialization or
+# a hardware-only path (Eden never exercises those). `all` keeps every member.
 $linkInput = Join-Path $stageAot 'managed\link-input'
 New-Item -ItemType Directory -Force -Path $linkInput | Out-Null
 Copy-Item -LiteralPath (Join-Path $gameManaged 'CastleMinerZ.exe') -Destination $linkInput -Force
@@ -272,7 +275,7 @@ $illinkLines = @(
     '    --feature System.Resources.UseSystemResourceKeys true \',
     '    -d "$LIB_ROOT" -d "$FRAMEWORK_ROOT" -d managed/link-input \',
     '    --trim-mode link \',
-    '    -a managed/link-input/CastleMinerZ.exe \',
+    '    -a managed/link-input/CastleMinerZ.exe all \',
     '    -a managed/link-input/DNA.Common.dll \',
     '    -a managed/link-input/FNA.dll \',
     '    -a managed/link-input/CastleMinerZ.XnaCompat.dll'
@@ -344,9 +347,11 @@ if ($LASTEXITCODE -ne 0) {
     throw "Game AOT compilation failed."
 }
 
-# RomFS holds only project/runtime files: the framework, the real FNA, the
-# compatibility assembly, ICU and the config. Game IL stays on the SD card;
-# game AOT machine code is linked into this private NRO.
+# RomFS holds the framework, the real FNA, the compatibility assembly, ICU, the
+# config, and the processed game assemblies under managed/. The game assemblies
+# are the ILLink output that this AOT code was compiled from, so they must be
+# embedded with it rather than read from the SD card. The package stays on the
+# SD card untouched.
 $romfs = Join-Path $stageAot 'romfs'
 if (Test-Path -LiteralPath $romfs) {
     Remove-Item -LiteralPath $romfs -Recurse -Force
@@ -358,6 +363,11 @@ foreach ($file in Get-ChildItem -Path (Join-Path $output '*') -Include '*.dll', 
     }
     Copy-Item -LiteralPath $file.FullName -Destination $romfs -Force
 }
+$romfsManaged = Join-Path $romfs 'managed'
+New-Item -ItemType Directory -Path $romfsManaged | Out-Null
+foreach ($name in @('CastleMinerZ.exe', 'DNA.Common.dll')) {
+    Copy-Item -LiteralPath (Join-Path $output $name) -Destination $romfsManaged -Force
+}
 $romfsEffects = Join-Path $romfs 'effects'
 New-Item -ItemType Directory -Path $romfsEffects | Out-Null
 # Use an explicit source-derived allowlist, never a glob over private game data.
@@ -367,7 +377,10 @@ foreach ($source in Get-ChildItem -LiteralPath (Join-Path $repo 'shaders\effects
 }
 foreach ($name in @('CastleMinerZ.exe', 'DNA.Common.dll')) {
     if (Test-Path -LiteralPath (Join-Path $romfs $name)) {
-        throw "Game assembly must not be staged in RomFS: $name"
+        throw "Game assembly must be under managed/ in RomFS, not at its root: $name"
+    }
+    if (-not (Test-Path -LiteralPath (Join-Path $romfsManaged $name) -PathType Leaf)) {
+        throw "Game assembly missing from RomFS managed/: $name"
     }
 }
 Copy-Item -LiteralPath (Join-Path $icuRoot 'share\icu\77.1\icudt77l.dat') -Destination $romfs -Force
@@ -378,7 +391,7 @@ $config = @(
     'icu = romfs:/icudt77l.dat',
     'assembly_dir = romfs:/',
     'config_dir = romfs:/',
-    'default_assembly = sdmc:/switch/castleminerz/managed/CastleMinerZ.exe',
+    'default_assembly = romfs:/managed/CastleMinerZ.exe',
     '',
     '[nx]',
     'file_io_redirect = sdmc:/switch/castleminerz-logs/runtime.log',
@@ -452,15 +465,6 @@ New-Item -ItemType Directory -Force -Path $OutputDirectory | Out-Null
 $outputNro = Join-Path $OutputDirectory 'castleminerz.nro'
 Copy-Item -LiteralPath $stageNro -Destination $outputNro -Force
 
-$sdManaged = Join-Path $SdRoot 'switch\castleminerz\managed'
-if (Test-Path -LiteralPath $SdRoot -PathType Container) {
-    New-Item -ItemType Directory -Force -Path $sdManaged | Out-Null
-    Copy-Item -LiteralPath (Join-Path $output 'CastleMinerZ.exe') -Destination $sdManaged -Force
-    Copy-Item -LiteralPath (Join-Path $output 'DNA.Common.dll') -Destination $sdManaged -Force
-    Write-Host "Staged linked game assemblies in $sdManaged"
-} else {
-    Write-Warning "SD root not found; copy $output\CastleMinerZ.exe and DNA.Common.dll to <sd>/switch/castleminerz/managed/."
-}
-
 Write-Host "Built $outputNro"
+Write-Host 'Copy it to sdmc:/switch/castleminerz.nro. The game assemblies are inside it; nothing else is staged.'
 Write-Host "SHA-256: $((Get-FileHash $outputNro -Algorithm SHA256).Hash)"

@@ -65,7 +65,14 @@ private:
     bool seek_and_read(std::uint64_t offset, void* output, std::size_t length,
                        std::string& error) const;
 
+    static constexpr std::uint64_t kUnknownStreamPosition = ~std::uint64_t{0};
+
     mutable std::FILE* file_ = nullptr;
+    // Offset file_ is known to be at, so sequential reads can skip fseek and
+    // keep the stdio buffer warm. kUnknownStreamPosition forces the next seek.
+    mutable std::uint64_t stream_position_ = kUnknownStreamPosition;
+    // stdio buffer for file_. Must outlive the stream: released after fclose.
+    std::vector<char> read_buffer_;
     std::string package_path_;
     std::string package_magic_;
     std::vector<StfsEntry> entries_;

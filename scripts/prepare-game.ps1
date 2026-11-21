@@ -115,28 +115,51 @@ $run = Join-Path $Workspace ('cmz-prepare-' + [guid]::NewGuid().ToString('N'))
 $originals = Join-Path $run 'original-managed'
 $buildOutput = Join-Path $run 'build'
 $sd = Join-Path $run 'sd'
-New-Item -ItemType Directory -Force -Path $originals, $sd | Out-Null
+New-Item -ItemType Directory -Force -Path $originals, (Join-Path $sd 'switch') | Out-Null
 foreach ($name in @('CastleMinerZ.exe', 'DNA.Common.dll')) {
     Invoke-PackageTool 'extract' "584E07D1/$name" (Join-Path $originals $name)
 }
 
+# The package goes to the SD card as a GOD-style folder, <title>\<content
+# type>\<file>, which is the layout the host's package search reads. The folder
+# can then be copied to the card exactly as it is.
+function Get-GodFolderPath {
+    param([Parameter(Mandatory)][string]$Path)
+    $header = [byte[]]::new(0x364)
+    $stream = [IO.File]::OpenRead($Path)
+    try {
+        if ($stream.Read($header, 0, $header.Length) -ne $header.Length) {
+            throw 'The package header is truncated.'
+        }
+    } finally {
+        $stream.Dispose()
+    }
+    # Big-endian title ID at 0x360 and content type at 0x344 (STFS metadata).
+    # uint64 keeps values above 0x7FFFFFFF positive under PowerShell's shift operators.
+    $titleId = ([uint64]$header[0x360] -shl 24) -bor ([uint64]$header[0x361] -shl 16) -bor
+        ([uint64]$header[0x362] -shl 8) -bor [uint64]$header[0x363]
+    $contentType = ([uint64]$header[0x344] -shl 24) -bor ([uint64]$header[0x345] -shl 16) -bor
+        ([uint64]$header[0x346] -shl 8) -bor [uint64]$header[0x347]
+    return ('{0:X8}\{1:X8}\{2}' -f $titleId, $contentType, (Split-Path -Leaf $Path))
+}
+$godRelative = Get-GodFolderPath $Package
+
 & (Join-Path $PSScriptRoot 'build-game.ps1') -ManagedSource $originals `
-    -Workspace $Workspace -DevkitPro $DevkitPro -SdRoot $sd -OutputDirectory $buildOutput
+    -Workspace $Workspace -DevkitPro $DevkitPro -OutputDirectory $buildOutput
 
 $nro = Join-Path $buildOutput 'castleminerz.nro'
 if (-not (Test-Path -LiteralPath $nro -PathType Leaf)) {
     throw "Game build did not produce an NRO. Private diagnostics: $run"
 }
 Copy-Item -LiteralPath $nro -Destination (Join-Path $sd 'switch\castleminerz.nro')
-$game = Join-Path $sd 'switch\castleminerz\game'
-New-Item -ItemType Directory -Path $game | Out-Null
-Copy-Item -LiteralPath $Package -Destination (Join-Path $game 'CastleMinerZ.stfs')
+$godDestination = Join-Path $sd ('switch\castleminerz\game\' + $godRelative)
+New-Item -ItemType Directory -Force -Path (Split-Path -Parent $godDestination) | Out-Null
+Copy-Item -LiteralPath $Package -Destination $godDestination
 
+# Order matters: the NRO is checked first, then the package (see $files[1] below).
 $paths = @(
     'switch/castleminerz.nro',
-    'switch/castleminerz/game/CastleMinerZ.stfs',
-    'switch/castleminerz/managed/CastleMinerZ.exe',
-    'switch/castleminerz/managed/DNA.Common.dll'
+    ('switch/castleminerz/game/' + ($godRelative -replace '\\', '/'))
 )
 $files = foreach ($path in $paths) {
     $fullPath = Join-Path $sd $path
@@ -156,7 +179,7 @@ if ($files[1].sha256 -cne $packageHash) {
 }
 $manifest = [ordered]@{
     format = 1
-    description = 'Private matching package, NRO and processed managed assemblies. Do not redistribute.'
+    description = 'Private NRO (with its processed game assemblies embedded) and the matching package. Do not redistribute.'
     files = @($files)
 }
 $manifestPath = Join-Path $sd 'switch\castleminerz\build-manifest.json'
@@ -170,5 +193,5 @@ New-Item -ItemType Directory -Force -Path (Split-Path -Parent $OutputRoot) | Out
 if (Test-Path -LiteralPath $OutputRoot) { throw "OutputRoot appeared during the build: $OutputRoot" }
 Move-Item -LiteralPath $sd -Destination $OutputRoot
 Write-Host "Prepared private SD folder: $OutputRoot"
-Write-Host 'Copy its entire switch folder to your SD root (or the destination Eden SDMC directory).'
-Write-Host 'Do not mix NRO/managed files from other builds or publish these outputs.'
+Write-Host 'Copy switch\castleminerz.nro and the switch\castleminerz folder to your SD card (or the Eden SDMC directory).'
+Write-Host 'Do not mix NROs from other builds with this package, or publish these outputs.'

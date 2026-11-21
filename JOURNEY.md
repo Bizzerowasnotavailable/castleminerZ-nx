@@ -138,6 +138,55 @@ Build a playable Nintendo Switch port of CastleMiner Z using Xbox 360 GOD/STFS p
 
 ## Current Runtime State
 
+### Hardware boot failure analysis (November 21, 2026)
+
+- **Status**: superseded for the user's console. The owner reports that
+  `01736465908_01007b5017a12000.log` did not come from their Switch, so the
+  conclusions below do not describe their device. A fresh NRO built from the
+  current tree is the next test. The findings are kept as leads.
+- **Evidence**: Atmosphère report `01736465908_01007b5017a12000.log` (process
+  `hbloader`, Result `0x2A8`, Instruction Abort). The faulting thread `0x2d5`
+  jumped to address 0 (`PC: 0`). Its LR is `castleminerz + 0x22b6f00`, the call
+  site. The thread has a 132 KB stack and had used about 4.6 KB at the fault, so
+  this is not a stack overflow.
+- **How far the boot got**: `host.log` from the same run stops after
+  `mono_jit_exec: begin`. Every earlier step succeeded on hardware: the package was
+  found and recognized (`known build: yes`), `cmz:/` was mounted, and both
+  assemblies opened. The fault is in game code, after managed startup began.
+- **Ruled out by this evidence**: SD discovery, STFS parsing and mount, profile
+  initialization, Mono initialization and assembly loading.
+- **Not yet identified**: the function. Mapping the offsets needs the unstripped
+  `castleminerz.elf` from the build that produced the crashed NRO.
+  `scripts/symbolize-crash.ps1` does the lookup. The build workspace is empty
+  here, and WSL is not installed, so the NRO cannot be rebuilt on this PC.
+- **Hypotheses, most likely first**:
+  1. Trimmed game code. `CastleMinerZ.exe` is an application, and ILLink was given
+     it with plain `-a`, which roots only `Main`. Members reached through
+     reflection, serialization or content readers are removed, and Eden seldom
+     exercises those paths. The build now uses `all` (unverified).
+  2. The audio callback path. Eden's audren never consumes SDL buffers, so audio
+     callbacks have never run in an emulator. FAudio also has no WMA decoder for the
+     11 streaming entries.
+  3. A null native pointer: a weak or missing native symbol reached through
+     `direct-pinvoke` or `direct-icalls`, or a delegate with no AOT code.
+- **Changes in this pass** (none built or run on hardware):
+  - STFS read path (`source/stfs.cpp`): reads one physically contiguous run per
+    hash-table group instead of one per 4 KiB block, skips `fseek` on sequential
+    reads, and uses a 64 KiB stdio buffer. A Python model of the same logic
+    reads the real package (239 files, expected sizes match `game_image.cpp`) with
+    identical bytes. Seek-plus-read operations fall from 7,938 to 284 for the whole
+    package. Not timed on an SD card.
+  - ILLink rooting (`scripts/build-game.ps1`): `CastleMinerZ.exe` now uses `all`.
+    If the link fails with undefined `System.Net.Security` or OpenSSL symbols, the
+    framework closure has grown. Revert that single line.
+  - `scripts/symbolize-crash.ps1`: resolves crash frames against an ELF. Tested with
+    a synthetic aarch64 ELF, not against this build.
+  - `docs/reference-minecraft-switch.md`: notes on the wick800/minecraft-switch
+    reference project.
+- **Needed next**: the `castleminerz.nro` that crashed (copy it from the SD card's
+  `switch` folder), the matching `castleminerz.elf` if it still exists, and a
+  hardware run with a rebuilt NRO.
+
 ### Installation workflow correction (October 28, 2026)
 
 - A second-PC report exposed the incomplete manual installation instructions:

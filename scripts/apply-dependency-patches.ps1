@@ -18,12 +18,19 @@ foreach ($target in $targets) {
     $source = Join-Path $Workspace $target.Source
     foreach ($patch in Get-ChildItem -LiteralPath (Join-Path $repo $target.Patches) -Filter '*.patch' -File |
         Sort-Object Name) {
+        # Committed patches use LF. In a CRLF checkout git rejects their context
+        # lines, so git always reads an LF copy kept in the workspace.
+        $normalizedDirectory = Join-Path $Workspace 'normalized-patches'
+        New-Item -ItemType Directory -Force -Path $normalizedDirectory | Out-Null
+        $patchFile = Join-Path $normalizedDirectory ($target.Name + '-' + $patch.Name)
+        [IO.File]::WriteAllText($patchFile, ([IO.File]::ReadAllText($patch.FullName) -replace "`r`n", "`n"),
+            (New-Object Text.UTF8Encoding($false)))
         # A failed reverse check is expected on a pristine checkout. Windows
         # PowerShell can turn redirected native stderr into a terminating error.
         $previousPreference = $ErrorActionPreference
         try {
             $ErrorActionPreference = 'Continue'
-            & git -C $source apply --reverse --check $patch.FullName 2>$null
+            & git -C $source apply --reverse --check $patchFile 2>$null
             $alreadyApplied = $LASTEXITCODE -eq 0
         } finally {
             $ErrorActionPreference = $previousPreference
@@ -32,11 +39,11 @@ foreach ($target in $targets) {
             Write-Host "$($target.Name) patch already applied: $($patch.Name)"
             continue
         }
-        & git -C $source apply --check $patch.FullName
+        & git -C $source apply --check $patchFile
         if ($LASTEXITCODE -ne 0) {
             throw "$($target.Name) source does not match $($patch.Name); inspect local dependency changes."
         }
-        & git -C $source apply $patch.FullName
+        & git -C $source apply $patchFile
         if ($LASTEXITCODE -ne 0) {
             throw "$($target.Name) patch failed: $($patch.Name)"
         }
