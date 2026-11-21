@@ -455,9 +455,15 @@ $command = "set -e; " +
     "cd '$msysAot'; " +
     "make -j4 TARGET=castleminerz " +
     "APP_TITLE='CastleMiner Z' APP_AUTHOR='castleminerZ-nx' APP_VERSION='0.1.0'"
+# gcc reports warnings on stderr. Windows PowerShell turns that into a terminating
+# error under Stop, so only the make exit code decides success here.
+$previousPreference = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
 & $bash -lc $command
-if ($LASTEXITCODE -ne 0) {
-    throw "Game NRO link failed."
+$makeExit = $LASTEXITCODE
+$ErrorActionPreference = $previousPreference
+if ($makeExit -ne 0) {
+    throw "Game NRO link failed (make exit $makeExit)."
 }
 
 $stageNro = Join-Path $stageAot 'castleminerz.nro'
