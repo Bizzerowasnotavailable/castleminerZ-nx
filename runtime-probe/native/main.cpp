@@ -25,6 +25,7 @@ extern "C" {
 
 #include "host_paths.h"
 #include "local_profile.h"
+#include "perf_monitor.h"
 
 #include "cmz/game_image.hpp"
 #include "cmz/package_mount.hpp"
@@ -68,6 +69,10 @@ void log_line(const char* format, ...) {
     va_end(args);
     std::fputc('\n', g_log);
     std::fflush(g_log);
+}
+
+void log_text(const char* text) {
+    log_line("%s", text != nullptr ? text : "(null)");
 }
 
 bool ensure_directory(const char* path) {
@@ -207,6 +212,10 @@ int main(int argc, char* argv[]) {
     configure_environment();
     log_line("controller buttons: Nintendo labels (A=accept, B=back)");
 
+    // Frame, FNA3D, GC and thread statistics go to perf.log; profile.ini in
+    // the log directory additionally enables the sampling profiler.
+    cmz_perf_initialize(log_text);
+
     SDL_version sdl_version {};
     SDL_GetVersion(&sdl_version);
     log_line("SDL %d.%d.%d", sdl_version.major, sdl_version.minor,
@@ -332,6 +341,7 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     log_line("mono_jit_init: done");
+    cmz_perf_attach_runtime();
 
     // Mono resolves static-AOT dependencies before mono_jit_exec establishes
     // AppContext.BaseDirectory. Preload the companion assembly explicitly so

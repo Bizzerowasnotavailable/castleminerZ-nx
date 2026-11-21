@@ -98,7 +98,8 @@ foreach ($relative in $trackedNativeFiles) {
 
 $stageSource = Join-Path $stageAot 'source'
 Remove-Item -LiteralPath (Join-Path $stageSource 'main.c') -Force
-foreach ($name in @('main.cpp', 'sdl_paths.cpp', 'host_paths.h', 'local_profile.cpp', 'local_profile.h')) {
+foreach ($name in @('main.cpp', 'sdl_paths.cpp', 'host_paths.h', 'local_profile.cpp', 'local_profile.h',
+        'perf_monitor.cpp', 'perf_monitor.h')) {
     Copy-Item -LiteralPath (Join-Path $repo "runtime-probe\native\$name") `
         -Destination (Join-Path $stageSource $name) -Force
 }
@@ -445,6 +446,26 @@ if ($makefileText -notmatch 'castleminerZ-nx: FNA native stack') {
         "-lFNA3D -lmojoshader -lFAudio -lSDL2 -lEGL -lglad -lglapi -ldrm_nouveau -lstdc++ -lm -lnx`n"
     [IO.File]::AppendAllText($makefile, $nativeLibs, (New-Object Text.UTF8Encoding($false)))
 }
+
+# The performance monitor times FNA3D calls through link-time wrappers. The
+# --wrap list comes from the __wrap_ definitions in perf_monitor.cpp, and every
+# wrapper must also have a CMZ_CHECK_WRAPPER signature check, so the source,
+# the checks and the linker flags cannot drift apart.
+$perfSource = [IO.File]::ReadAllText((Join-Path $repo 'runtime-probe\native\perf_monitor.cpp'))
+$wrapped = @([regex]::Matches($perfSource, '\b__wrap_(FNA3D_\w+)\s*\(') |
+    ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)
+$checked = @([regex]::Matches($perfSource, '(?m)^CMZ_CHECK_WRAPPER\((FNA3D_\w+)\);') |
+    ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)
+if ($wrapped.Count -eq 0 -or (Compare-Object $wrapped $checked)) {
+    throw "perf_monitor.cpp: FNA3D wrappers ($($wrapped -join ', ')) and signature checks ($($checked -join ', ')) differ."
+}
+if ($makefileText -notmatch 'castleminerZ-nx: performance monitor') {
+    $perfBlock = "`n# castleminerZ-nx: performance monitor (FNA3D timing wrappers)`n" +
+        "CXXFLAGS += -I$msysFna3d/include`n" +
+        "LDFLAGS += $(($wrapped | ForEach-Object { "-Wl,--wrap=$_" }) -join ' ')`n"
+    [IO.File]::AppendAllText($makefile, $perfBlock, (New-Object Text.UTF8Encoding($false)))
+}
+Write-Host "FNA3D timing wrappers: $($wrapped.Count)"
 
 $command = "set -e; " +
     "export DEVKITPRO='$msysDevkit'; " +

@@ -10,13 +10,16 @@ An experimental Nintendo Switch homebrew interoperability and static-AOT porting
 ## Objective
 Build a playable Nintendo Switch port of CastleMiner Z using Xbox 360 GOD/STFS package without redistributing game assets, mapping Xbox gamer identity to Switch's regular local user profile without Nintendo Account linking.
 
-## Current Snapshot (October 2026)
+## Current Snapshot (November 2026)
 
-- **Status:** locally prepared developer build playable in Eden; not a generic
-  NRO-plus-rip release. Physical Switch validation pending.
-- **Build:** private ARM64 NRO produced by the full relink/AOT pipeline
-  (latest local SHA-256
-  `DC00BCA5E1FA300BA3659F22C90F4A516F7778A82CFAC6CA538B1472A33BD7A3`).
+- **Status:** locally prepared developer build playable in Eden, and it boots on
+  a physical Switch (owner report, November 21, 2026). Not a generic
+  NRO-plus-rip release. Gameplay validation on hardware is pending.
+- **Build:** private ARM64 NRO produced by the full relink/AOT pipeline. The
+  build confirmed booting on hardware has SHA-256
+  `31E28CFA247CECC56CB78B2ED456885C1A2207B5D267360847F32F33C3AD43EF`; the
+  first build with performance instrumentation has
+  `1C122A1081A31C131BC952E24B1B123B3169AD33C25B676B0F575391AA3A3053`.
 - **Verified:** title screen, offline world entry and save load, terrain,
   sky/clouds, water, HUD, hotbar icons, first-person held item, pause menu,
   movement/camera, mapped controller input, local-profile identity, and
@@ -27,16 +30,19 @@ Build a playable Nintendo Switch port of CastleMiner Z using Xbox 360 GOD/STFS p
   package and produces a complete private SD folder with a matching NRO,
   processed EXE/DLL, unmodified package and SHA-256 manifest. It no longer
   assumes the user already has extracted/relinked files or this PC's Eden data.
-- **Open:** audio in Eden (the emulator's audren renderer never consumes SDL
-  buffers), WMA streaming music, invisible third-person avatar body,
-  inventory/combat/full save-cycle validation, and physical-hardware testing.
+- **Open:** performance (measurement tools are in place; see the November 21
+  entry and `docs/performance.md`), music and ambience (xWMA plays as silence
+  until a decoder exists), audio in Eden (the emulator's audren renderer never
+  consumes SDL buffers), invisible third-person avatar body,
+  inventory/combat/full save-cycle validation, and gameplay on hardware.
 
 ## Project Structure
 - **Primary Code**: `castleminerZ-nx/` - Main Switch port framework
 - **Dependencies**: `%LOCALAPPDATA%\Temp\opencode\` - External dependencies and private build artifacts
 - **Assets**: Read directly from original package, no RomFS staging
-- **Managed Code**: matching processed `CastleMinerZ.exe` and `DNA.Common.dll`
-  on SD under `switch\castleminerz\managed`, generated from the user's package
+- **Managed Code**: matching processed `CastleMinerZ.exe` and `DNA.Common.dll`,
+  generated from the user's package and embedded in the private NRO's RomFS
+  under `managed/`; the SD card holds only the NRO and the package's GOD folder
 
 ---
 
@@ -113,8 +119,9 @@ Build a playable Nintendo Switch port of CastleMiner Z using Xbox 360 GOD/STFS p
 - [ ] Inventory system testing
 - [ ] Combat system validation
 - [ ] Audio system testing (XACT/FAudio integration) — PCM SFX bank supported;
-      11 WMA streaming entries unsupported by the Switch FAudio build; Eden's
-      audren renderer blocks all SDL playback; hardware validation pending
+      the 11 xWMA streaming entries play as timed silence (`patches/faudio`),
+      which fixed the hardware boot crash; Eden's audren renderer blocks all SDL
+      playback; audible hardware validation pending
 - [ ] Camera/recording for item placement
 
 #### Platform Integration
