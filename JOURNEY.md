@@ -163,7 +163,10 @@ Build a playable Nintendo Switch port of CastleMiner Z using Xbox 360 GOD/STFS p
   1. Trimmed game code. `CastleMinerZ.exe` is an application, and ILLink was given
      it with plain `-a`, which roots only `Main`. Members reached through
      reflection, serialization or content readers are removed, and Eden seldom
-     exercises those paths. The build now uses `all` (unverified).
+     exercises those paths. Weakened by a Windows ILLink run on the same inputs: plain
+      `-a` and `-a ... all` gave identical framework sets, and each game assembly
+      shrank by only about 1 KB, so trimming is unlikely to be the cause. The `all`
+      rooting stays as a harmless guard.
   2. The audio callback path. Eden's audren never consumes SDL buffers, so audio
      callbacks have never run in an emulator. FAudio also has no WMA decoder for the
      11 streaming entries.
@@ -177,8 +180,8 @@ Build a playable Nintendo Switch port of CastleMiner Z using Xbox 360 GOD/STFS p
     identical bytes. Seek-plus-read operations fall from 7,938 to 284 for the whole
     package. Not timed on an SD card.
   - ILLink rooting (`scripts/build-game.ps1`): `CastleMinerZ.exe` now uses `all`.
-    If the link fails with undefined `System.Net.Security` or OpenSSL symbols, the
-    framework closure has grown. Revert that single line.
+    Checked on Windows with the same inputs: the framework closure is unchanged, so
+    the OpenSSL risk did not materialize in that run. The WSL build is the real test.
   - `scripts/symbolize-crash.ps1`: resolves crash frames against an ELF. Tested with
     a synthetic aarch64 ELF, not against this build.
   - `docs/reference-minecraft-switch.md`: notes on the wick800/minecraft-switch
