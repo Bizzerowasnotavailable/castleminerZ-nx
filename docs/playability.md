@@ -23,7 +23,7 @@ without a Switch. It assumes the graphics decision in
 | First-person held items | correct lower-right placement verified in Eden using the game's fallback avatar skeleton |
 | Xbox custom effects | ten project-authored replacements compile and pass MojoShader/interface checks |
 | Xbox texture/model byte order | corrected sky, hotbar icons and held models verified in Eden; synthetic reader tests pass |
-| Audio (XACT/FAudio) | PCM SFX path linked; 11 WMA streaming entries unsupported; Eden audren blocks all SDL playback; hardware validation pending |
+| Audio (XACT/FAudio) | PCM SFX path linked; 11 xWMA streaming entries play as timed silence (`patches/faudio`); Eden audren blocks all SDL playback; host mixer check passes; hardware validation pending |
 | Local profile integration | selected local user and UID-scoped storage verified in Eden; synthetic facade tests pass; hardware validation pending |
 
 The native graphics stack and package filesystem work in Eden. The reported
@@ -178,9 +178,14 @@ reimplementation is needed.
 4. Keep a silent no-op path if audio init fails so the game still runs.
 
 State: the XACT/FAudio path is linked and the sound-effect bank is PCM
-(`Sounds.xwb`, 127 entries). The 11 streaming music entries in
-`SoundsStreaming.xwb` are WMA, which the current Switch FAudio build does not
-decode. Eden cannot validate playback at all: SDL opens the `switch` driver, but
+(`Sounds.xwb`, 127 entries). The 11 streaming entries in `SoundsStreaming.xwb`
+are xWMA (music and ambience), which no Switch FAudio backend decodes. Without a
+decoder, upstream FAudio leaves those voices with a null decode function and the
+mixer calls it on the SDL audio thread; that was the hardware crash. The
+`SILENT_WMA_DECODING` patch keeps FAudio's xWMA bookkeeping and outputs silence,
+so cues keep their real length, loop and end normally.
+`scripts/test-xact-audio.ps1` plays all 63 cues through a live mixer on the host
+and checks every voice has a decoder. Eden cannot validate playback at all: SDL opens the `switch` driver, but
 the emulator's audren renderer never advances wave buffers, so
 `SWITCHAUDIO_PlayDevice` blocks in `audrenWaitFrame`. A standalone SDL tone NRO
 receives one callback and then blocks, proving this is an emulator limit rather

@@ -41,11 +41,15 @@ Known limitations:
   geometry is read or rendered. A project-authored placeholder body is future
   work.
 - **Audio:** FNA/FAudio and the XACT bank loader are linked, and the sound-effect
-  bank is PCM. The 11 streaming music entries are WMA, which the current Switch
-  FAudio build does not decode. Eden's audren renderer also never consumes SDL
-  wave buffers (a standalone SDL tone gets one callback and then blocks), so no
-  SDL audio can be heard in Eden. Hardware audio validation and a WMA policy
-  remain open.
+  bank is PCM. The 11 streaming entries (music and ambience) are xWMA, and there
+  is no xWMA decoder for Switch. Upstream FAudio leaves such voices without a
+  decode function and its mixer then calls a null pointer; on hardware that
+  crashed the game as soon as the title music started. `patches/faudio` plays
+  them as timed silence instead, so **music is currently silent**. Eden's audren
+  renderer never consumes SDL wave buffers (a standalone SDL tone gets one
+  callback and then blocks), so no SDL audio can be heard in Eden;
+  `scripts/test-xact-audio.ps1` plays the game's cues through a live mixer on
+  the host instead. Hardware audio validation remains open.
 - **Validation:** inventory, combat, and a full power-cycle save/load test still
   need complete passes; no physical Switch run has been completed.
 - **Behavior note:** brief full-sky white flashes are the game's original

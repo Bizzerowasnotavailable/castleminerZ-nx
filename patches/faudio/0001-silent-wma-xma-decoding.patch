@@ -1,0 +1,142 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index c228250..219cb98 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -16,6 +16,7 @@ option(BUILD_SDL3 "Build against SDL 3.0" ON)
+ if(WIN32)
+ option(PLATFORM_WIN32 "Enable native Win32 platform instead of SDL" OFF)
+ option(WMA_DECODING "Enable WMA decoding support" ${PLATFORM_WIN32})
++option(SILENT_WMA_DECODING "Play xWMA and XMA2 voices as timed silence when no decoder is available" OFF)
+ endif()
+ option(XNASONG "Build with XNA_Song.c" ON)
+ option(LOG_ASSERTIONS "Bind FAudio_assert to log, instead of platform's assert" OFF)
+@@ -117,15 +118,24 @@ add_library(${target}
+ 	src/FAudio_platform_sdl3.c
+ 	src/FAudio_platform_win32.c
+ 	src/FAudio_platform_win32_wmadec.c
++	src/FAudio_silent_wmadec.c
+ 	# Optional source files
+ 	src/XNA_Song.c
+ )
+ 
++if(WMA_DECODING AND SILENT_WMA_DECODING)
++	message(FATAL_ERROR "WMA_DECODING and SILENT_WMA_DECODING cannot both be enabled")
++endif()
++
+ if(WMA_DECODING)
+ 	target_compile_definitions(${target} PRIVATE HAVE_WMADEC=1)
+ 	target_link_libraries(${target} PRIVATE ole32 mfplat mfuuid)
+ endif()
+ 
++if(SILENT_WMA_DECODING)
++	target_compile_definitions(${target} PRIVATE HAVE_WMADEC=1 FAUDIO_SILENT_WMADEC=1)
++endif()
++
+ if(PLATFORM_WIN32)
+ 	target_link_libraries(${target} PRIVATE dxguid uuid winmm ole32 advapi32 user32 mfplat mfreadwrite mfuuid propsys)
+ 	target_compile_definitions(${target} PUBLIC FAUDIO_WIN32_PLATFORM)
+diff --git a/src/FAudio_platform_win32_wmadec.c b/src/FAudio_platform_win32_wmadec.c
+index 45a3abe..cbc8832 100644
+--- a/src/FAudio_platform_win32_wmadec.c
++++ b/src/FAudio_platform_win32_wmadec.c
+@@ -2,7 +2,7 @@
+ 
+ #include "FAudio_internal.h"
+ 
+-#ifdef HAVE_WMADEC
++#if defined(HAVE_WMADEC) && !defined(FAUDIO_SILENT_WMADEC)
+ 
+ #include <stddef.h>
+ 
+@@ -625,7 +625,7 @@ void FAudio_WMADEC_end_buffer(FAudioSourceVoice *voice)
+ 	LOG_FUNC_EXIT(voice->audio)
+ }
+ 
+-#else /* HAVE_WMADEC */
++#elif !defined(HAVE_WMADEC)
+ 
+ void decode_wma(FAudioVoice *voice, struct queued_buffer *buffer, float *dst, uint32_t sample_count)
+ {
+diff --git a/src/FAudio_silent_wmadec.c b/src/FAudio_silent_wmadec.c
+new file mode 100644
+index 0000000..d2d4cc9
+--- /dev/null
++++ b/src/FAudio_silent_wmadec.c
+@@ -0,0 +1,77 @@
++/* FAudio WMADEC stand-in that plays xWMA and XMA2 voices as timed silence.
++ *
++ * Without a decoder backend, FAudio_CreateSourceVoice leaves xWMA and XMA2
++ * voices with no decode function, and the mixer calls that null pointer as
++ * soon as such a voice plays. XACT wave banks commonly contain xWMA.
++ *
++ * Building with SILENT_WMA_DECODING enables the HAVE_WMADEC bookkeeping with
++ * this backend instead. Buffer lengths then come from the xWMA packet table
++ * or the XMA2 sample count, so these voices keep their real duration, loop
++ * and end on time, and the mixer receives silence. Nothing is decoded.
++ */
++
++#include "FAudio_internal.h"
++
++#ifdef FAUDIO_SILENT_WMADEC
++
++/* Stateless: every silent voice points at this one marker object. */
++struct FAudioWMADEC
++{
++	uint8_t unused;
++};
++
++static struct FAudioWMADEC silent_wmadec;
++static uint8_t silent_wmadec_reported;
++
++uint32_t FAudio_WMADEC_init(FAudioSourceVoice *voice, uint32_t type)
++{
++	LOG_FUNC_ENTER(voice->audio)
++
++	if (!silent_wmadec_reported)
++	{
++		char message[128];
++		FAudio_snprintf(
++			message,
++			sizeof(message),
++			"FAudio: format 0x%X has no decoder in this build; it plays as silence",
++			(unsigned int) type
++		);
++		FAudio_Log(message);
++		silent_wmadec_reported = 1;
++	}
++
++	voice->src.wmadec = &silent_wmadec;
++	voice->src.decode = NULL;
++
++	LOG_FUNC_EXIT(voice->audio)
++	return 0;
++}
++
++void FAudio_WMADEC_free(FAudioSourceVoice *voice)
++{
++	LOG_FUNC_ENTER(voice->audio)
++	voice->src.wmadec = NULL;
++	voice->src.decode = NULL;
++	LOG_FUNC_EXIT(voice->audio)
++}
++
++void FAudio_WMADEC_end_buffer(FAudioSourceVoice *voice)
++{
++	/* There is no decoder state to reset between buffers. */
++	(void) voice;
++}
++
++void decode_wma(
++	FAudioVoice *voice,
++	struct queued_buffer *buffer,
++	float *dst,
++	uint32_t sample_count
++) {
++	(void) buffer;
++	FAudio_zero(
++		dst,
++		sample_count * voice->src.format->nChannels * sizeof(float)
++	);
++}
++
++#endif /* FAUDIO_SILENT_WMADEC */

@@ -8,6 +8,7 @@ param(
 $ErrorActionPreference = "Stop"
 & (Join-Path $PSScriptRoot 'apply-dependency-patches.ps1') -Workspace $Workspace -Dependency FNA3D
 & (Join-Path $PSScriptRoot 'apply-dependency-patches.ps1') -Workspace $Workspace -Dependency MojoShader
+& (Join-Path $PSScriptRoot 'apply-dependency-patches.ps1') -Workspace $Workspace -Dependency FAudio
 $bash = Join-Path $DevkitPro "msys2\usr\bin\bash.exe"
 if (-not (Test-Path -LiteralPath $bash -PathType Leaf)) {
     throw "devkitPro bash was not found at $bash"
@@ -60,10 +61,16 @@ Invoke-SwitchCMake (Join-Path $Workspace 'FNA3D') @(
     '-DTRACING_SUPPORT=OFF',
     '-DMOJOSHADER_STATIC_SPIRVCROSS=OFF'
 )
+# There is no xWMA/XMA2 decoder for Switch. Without one, FAudio leaves those
+# voices with a null decode function and the mixer calls it as soon as the
+# game's streaming music starts. That faults on hardware; Eden never runs the
+# mixer that far. SILENT_WMA_DECODING (patches/faudio) plays them as timed
+# silence instead.
 Invoke-SwitchCMake (Join-Path $Workspace 'FAudio') @(
     '-DBUILD_SDL3=OFF',
     '-DBUILD_TESTS=OFF',
-    '-DBUILD_UTILS=OFF'
+    '-DBUILD_UTILS=OFF',
+    '-DSILENT_WMA_DECODING=ON'
 )
 
 $outputs = @(

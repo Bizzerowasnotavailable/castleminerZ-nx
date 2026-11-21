@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [string]$Workspace = (Join-Path $env:LOCALAPPDATA 'Temp\opencode\castleminerz-deps'),
-    [ValidateSet('All', 'FNA', 'FNA3D', 'MojoShader', 'mono-nx')]
+    [ValidateSet('All', 'FNA', 'FNA3D', 'MojoShader', 'FAudio', 'mono-nx')]
     [string]$Dependency = 'All'
 )
 
@@ -11,6 +11,7 @@ $targets = @(
     @{ Name = 'FNA'; Source = 'FNA'; Patches = 'patches\fna' },
     @{ Name = 'FNA3D'; Source = 'FNA3D'; Patches = 'patches\fna3d' },
     @{ Name = 'MojoShader'; Source = 'FNA3D\MojoShader'; Patches = 'patches\mojoshader' },
+    @{ Name = 'FAudio'; Source = 'FAudio'; Patches = 'patches\faudio' },
     @{ Name = 'mono-nx'; Source = 'mono-nx'; Patches = 'patches\mono-nx' }
 )
 foreach ($target in $targets) {

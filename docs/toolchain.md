@@ -102,6 +102,41 @@ dependency's `build-switch` directory. FNA integration still requires managed
 assembly relinking/facades, P/Invoke registration, and Switch-specific API-gap
 work; producing these archives alone does not make the game playable.
 
+### FAudio xWMA and XMA2
+
+No FAudio backend decodes xWMA or XMA2 on Switch, and the game's streaming wave
+bank is xWMA. Without `HAVE_WMADEC`, upstream `FAudio_CreateSourceVoice` leaves
+those voices without a decode function (its assert compiles out in Release), and
+`FAudio_INTERNAL_DecodeBuffers` calls that null pointer on the SDL audio thread.
+That is an instruction abort at PC 0 on hardware; Eden never reaches it because
+its audio renderer stops the mixer after one callback.
+
+`patches/faudio/0001-silent-wma-xma-decoding.patch` adds the
+`SILENT_WMA_DECODING` CMake option and `src/FAudio_silent_wmadec.c`. The option
+compiles FAudio's `HAVE_WMADEC` bookkeeping with a backend that writes silence.
+Buffer lengths still come from the xWMA packet table or the XMA2 sample count,
+so cues keep their real length, loop and end normally. The first such voice logs
+`FAudio: format 0x... has no decoder in this build; it plays as silence` through
+SDL, which the runtime host writes to `host.log`.
+`build-native-dependencies.ps1` applies the patch and enables the option.
+
+Check the audio path with a live mixer on the host:
+
+```powershell
+./scripts/test-xact-audio.ps1 -Package C:\path\to\owned-package
+```
+
+This builds the pinned FAudio for Linux in WSL twice, as is and patched, and
+plays every cue of the package's XACT project through FACT the way FNA's
+`AudioEngine`, `WaveBank` and `SoundBank` do, with SDL's paced dummy driver. It
+fails if any voice is left without a decoder in the patched build, and reports
+whether the unpatched build faults (it does: `SIGFPE` on x86, from the same
+path's `samples_per_block` of zero). It needs `gcc`, `cmake`, `git` and the
+SDL2 development package in WSL. The four XACT files are extracted into the
+workspace for the run and deleted afterwards. With a cue name,
+`tools/xact-audio-check` can also soak a single cue to check looping and stream
+end.
+
 ## Graphics probe
 
 `scripts/build-graphics-probe.ps1` links the project-authored native probe in
