@@ -23,6 +23,11 @@ void cmz_perf_initialize(CmzPerfLogFn host_log);
 // and stop). Call after mono_jit_init and before mono_jit_exec.
 void cmz_perf_attach_runtime(void);
 
+// Queues one line for perf.log, written before the next report and prefixed
+// with "# ". Safe from any thread, including the audio thread; it never waits
+// for I/O. Lines beyond the queue's capacity are dropped and counted.
+void cmz_perf_note(const char* text);
+
 #ifdef __cplusplus
 }
 #endif

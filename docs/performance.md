@@ -18,18 +18,24 @@ Fields:
 | `frame_ms` | Present-to-present interval: average, p50/p95/p99, maximum, and how many frames took over 33.5 ms. Percentiles have 0.25 ms resolution below 50 ms. |
 | `gfx_ms` | Main-thread time per frame inside FNA3D calls, excluding present. |
 | `present_ms` | Time per frame inside `FNA3D_SwapBuffers`. |
-| `<category>=a/b` | `a` ms per frame and `b` calls per frame for `draw`, `effect` (apply/technique/pass restore), `state` (blend, depth, rasterizer, viewport, scissor, vertex bindings), `sampler`, `upload` (vertex/index data), `texture` (texture data), `target` (clear, render targets, resolve), `resource` (create/dispose buffers and textures) and `readback` (GPU-to-CPU reads). |
+| `<category>=a/b` | `a` ms per frame and `b` calls per frame for `draw`, `effect` (apply/technique/pass restore), `state` (blend, depth, rasterizer, viewport, scissor, vertex bindings), `sampler`, `upload` (vertex/index data), `texture` (texture data), `clear`, `target` (render targets, resolve), `resource` (create/dispose buffers and textures) and `readback` (GPU-to-CPU reads). |
 | `prims`, `upload_kb`, `texture_kb` | Primitives drawn, and vertex/index and texture bytes uploaded, per frame. |
 | `offthread` | FNA3D calls made by other threads in the interval and their total duration. FNA3D's OpenGL driver queues such calls and runs them only once per frame, inside `SwapBuffers`, so each one blocks its thread until the next present. |
 | `main_cpu` | CPU time of the main thread over wall time. Near 100% means the main thread is CPU-bound. |
-| `gc` | Mono collections started in the interval (`minor`, `major`), total stop-the-world time and the longest pause. |
+| `gc` | Mono collections started in the interval (`minor`, `major`), total stop-the-world time and the longest pause. The host sets a 16 MB nursery (`MONO_GC_PARAMS=nursery-size=16m`); the major collector is SGen's default concurrent mark-sweep. |
+| `audio` | Audio device callbacks (FAudio's mixer) in the interval, mixing time per callback (average and maximum), the highest output sample, callbacks that produced only silence, and the audio thread priority (`raised` = 0x2A). `audio closed` means no device was opened; `open-failed` counts failed opens, and `host.log` has SDL's reason. |
 | `threads` | Managed threads that used at least 1% of a core, by name, and the number of live managed threads. |
 
 Mesa acquires the next swap-chain buffer lazily, at the first use of the window
 framebuffer in a frame. The wait for a free buffer (vsync) is therefore counted
-under `target`, normally in the frame's first `Clear`, not under `present_ms`.
-A `target` close to the frame budget with low `main_cpu` means the game is
+under `clear`, normally in the frame's first `Clear`, not under `present_ms`.
+A `clear` close to the frame budget with low `main_cpu` means the game is
 waiting for vsync, not drawing.
+
+FNA3D runs FNA3D calls made by other threads on the main thread. Upstream does
+that only once per frame, in `SwapBuffers`; the port's FNA3D patch also runs
+them before every effect pass, so `offthread` time per call should stay well
+under a frame.
 
 Eden reports no thread CPU time, so `main_cpu` and `threads` read 0% there.
 

@@ -22,6 +22,7 @@
 //     records. Between pause and resume nothing allocates, locks or does I/O.
 
 #include "perf_monitor.h"
+#include "sdl_audio_hooks.h"
 
 #include <switch.h>
 
@@ -132,6 +133,9 @@ void copy_name(char* destination, size_t size, const char* source) {
 // ---------------------------------------------------------------------------
 // FNA3D accounting
 
+// "clear" is separate from "target": Mesa acquires the next swap-chain buffer at
+// the first use of the window framebuffer in a frame, normally the first
+// Clear, so the wait for vsync lands there.
 enum GfxSlot : int {
     kGfxDraw = 0,
     kGfxEffect,
@@ -139,6 +143,7 @@ enum GfxSlot : int {
     kGfxSampler,
     kGfxUpload,
     kGfxTexture,
+    kGfxClear,
     kGfxTarget,
     kGfxResource,
     kGfxReadback,
@@ -147,8 +152,8 @@ enum GfxSlot : int {
 };
 
 constexpr const char* kGfxNames[kGfxSlotCount] = {
-    "draw", "effect", "state", "sampler", "upload",
-    "texture", "target", "resource", "readback", "present",
+    "draw", "effect", "state", "sampler", "upload", "texture",
+    "clear", "target", "resource", "readback", "present",
 };
 
 struct GfxTotals {
@@ -435,6 +440,46 @@ void on_thread_stopped(MonoProfiler* /*profiler*/, uintptr_t tid) {
 }
 
 // ---------------------------------------------------------------------------
+// Notes: one-off lines (audio device details, captured SDL messages) that the
+// report thread writes to perf.log. perf.log is the one log the report thread
+// is known to keep writing once the game runs.
+
+constexpr int kNoteSlots = 64;
+constexpr size_t kNoteLength = 240;
+
+struct NoteQueue {
+    Mutex lock;
+    uint32_t head;
+    uint32_t count;
+    uint32_t dropped;
+    char text[kNoteSlots][kNoteLength];
+};
+
+NoteQueue g_notes;
+
+void write_notes(std::FILE* log) {
+    static char pending[kNoteSlots][kNoteLength];
+    uint32_t count = 0;
+    uint32_t dropped = 0;
+    mutexLock(&g_notes.lock);
+    for (; count < g_notes.count; ++count) {
+        std::memcpy(pending[count], g_notes.text[(g_notes.head + count) % kNoteSlots], kNoteLength);
+    }
+    g_notes.head = (g_notes.head + count) % kNoteSlots;
+    g_notes.count = 0;
+    dropped = g_notes.dropped;
+    g_notes.dropped = 0;
+    mutexUnlock(&g_notes.lock);
+
+    for (uint32_t index = 0; index < count; ++index) {
+        std::fprintf(log, "# %s\n", pending[index]);
+    }
+    if (dropped > 0) {
+        std::fprintf(log, "# (%u more notes dropped)\n", dropped);
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Report thread
 
 struct Snapshot {
@@ -593,6 +638,28 @@ void write_report(std::FILE* log, const Snapshot& before, const Snapshot& after)
                  ticks_to_ms(g_gc_pause_max.exchange(0, kRelaxed)));
     }
 
+    // Audio device callbacks (FAudio's mixer) and the level they produced.
+    static CmzAudioReport previous_audio;
+    CmzAudioReport audio;
+    cmz_audio_take_report(&audio);
+    if (audio.devices_opened == 0 && audio.open_failures > 0) {
+        line.add(" | audio open-failed=%u", audio.open_failures);
+    } else if (audio.devices_opened == 0) {
+        line.add(" | audio closed");
+    } else {
+        const uint64_t callbacks = audio.callbacks - previous_audio.callbacks;
+        line.add(" | audio cb=%llu mix_ms avg=%.2f max=%.2f peak=%.3f silent_cb=%llu prio=%s",
+                 static_cast<unsigned long long>(callbacks),
+                 callbacks > 0 ? ticks_to_ms(audio.callback_ticks - previous_audio.callback_ticks) /
+                                     static_cast<double>(callbacks)
+                               : 0.0,
+                 ticks_to_ms(audio.max_callback_ticks), static_cast<double>(audio.peak),
+                 static_cast<unsigned long long>(audio.silent_callbacks -
+                                                 previous_audio.silent_callbacks),
+                 audio.priority_raised ? "raised" : "sdl");
+    }
+    previous_audio = audio;
+
     // Managed threads that used at least 1% of a core.
     bool header = false;
     int alive = 0;
@@ -641,10 +708,12 @@ void write_header(std::FILE* log) {
                  g_thread_tick_info != 0 ? "available" : "unavailable",
                  static_cast<unsigned long long>(kReportIntervalNs / 1000000000ull));
     std::fputs("# frame_ms: present-to-present interval. gfx_ms: main-thread time inside FNA3D "
-               "calls per frame, excluding present. <category>=<ms per frame>/<calls per frame>. "
-               "present_ms: time inside FNA3D_SwapBuffers (vsync and GPU waits). main_cpu: CPU "
-               "time of the main thread over wall time. gc pause_ms: stop-the-world time in the "
-               "interval.\n",
+               "calls per frame, excluding present. <category>=<ms per frame>/<calls per frame>; "
+               "clear includes the wait for the next swap-chain buffer (vsync). present_ms: time "
+               "inside FNA3D_SwapBuffers. main_cpu: CPU time of the main thread over wall time. "
+               "gc pause_ms: stop-the-world time in the interval. audio: device callbacks in the "
+               "interval, mixing time per callback, highest output sample, callbacks that output "
+               "only silence, audio thread priority.\n",
                log);
     std::fflush(log);
 }
@@ -669,6 +738,7 @@ void reporter_main(void* /*argument*/) {
         }
         const int next = current ^ 1;
         take_snapshot(&snapshots[next]);
+        write_notes(log);
         write_report(log, snapshots[current], snapshots[next]);
         current = next;
     }
@@ -1005,7 +1075,7 @@ void __wrap_FNA3D_Clear(FNA3D_Device* device, FNA3D_ClearOptions options, FNA3D_
                         float depth, int32_t stencil) {
     const uint64_t start = armGetSystemTick();
     __real_FNA3D_Clear(device, options, color, depth, stencil);
-    account(kGfxTarget, start);
+    account(kGfxClear, start);
 }
 
 void __wrap_FNA3D_DrawIndexedPrimitives(FNA3D_Device* device, FNA3D_PrimitiveType primitiveType,
@@ -1362,6 +1432,29 @@ extern "C" void cmz_perf_initialize(CmzPerfLogFn host_log) {
         !start_thread(&g_sampler_thread, sampler_main, 0x2C, 0x10000)) {
         host_logf("profiler: thread not started");
     }
+}
+
+extern "C" void cmz_perf_note(const char* text) {
+    if (text == nullptr) {
+        return;
+    }
+    mutexLock(&g_notes.lock);
+    if (g_notes.count < static_cast<uint32_t>(kNoteSlots)) {
+        char* slot = g_notes.text[(g_notes.head + g_notes.count) % kNoteSlots];
+        // One record per line in perf.log.
+        size_t length = 0;
+        for (; text[length] != '\0' && length + 1 < kNoteLength; ++length) {
+            slot[length] = (text[length] == '\n' || text[length] == '\r') ? ' ' : text[length];
+        }
+        while (length > 0 && slot[length - 1] == ' ') {
+            --length;
+        }
+        slot[length] = '\0';
+        g_notes.count += 1;
+    } else {
+        g_notes.dropped += 1;
+    }
+    mutexUnlock(&g_notes.lock);
 }
 
 extern "C" void cmz_perf_attach_runtime(void) {

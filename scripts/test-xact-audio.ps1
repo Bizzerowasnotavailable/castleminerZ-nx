@@ -2,19 +2,21 @@
 param(
     [Parameter(Mandatory)][string]$Package,
     [string]$Workspace = (Join-Path $env:LOCALAPPDATA 'Temp\opencode\castleminerz-deps'),
-    [int]$WindowMilliseconds = 200
+    [int]$WindowMilliseconds = 1000
 )
 
 # Plays every cue of the game's XACT project through FACT with a live mixer on
-# the Linux host (WSL): once with the pinned FAudio as is, and once with
-# patches/faudio. Eden never runs the audio mixer past its first callback, so
-# faults that only happen while mixing (such as the xWMA music voice with no
-# decoder) cannot be seen there.
+# the Linux host (WSL), with the pinned FAudio as is and with patches/faudio
+# using the silent and the FFmpeg xWMA backends, and measures the level of each
+# cue on the mastering voice. Eden never runs the audio mixer past its first
+# callback, so faults that only happen while mixing (such as the xWMA music
+# voice with no decoder) cannot be seen there.
 #
-# Needs WSL with gcc, cmake, git and the SDL2 development package, and the
-# dependency workspace from setup-dependencies.ps1. The four XACT files are
-# extracted into the private workspace for the run and deleted afterwards;
-# nothing is written to the repository.
+# Needs WSL with gcc, cmake, git, pkg-config and the SDL2, libavcodec and
+# libavutil development packages, and the dependency workspace from
+# setup-dependencies.ps1. The four XACT files are extracted into the private
+# workspace for the run and deleted afterwards; nothing is written to the
+# repository.
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
 $Workspace = [IO.Path]::GetFullPath($Workspace)
@@ -77,16 +79,30 @@ finally {
     Remove-Item -LiteralPath $data -Recurse -Force -ErrorAction SilentlyContinue
 }
 
-$pristine = $output | Where-Object { $_ -match '^RESULT pristine ' } | Select-Object -First 1
-$patched = $output | Where-Object { $_ -match '^RESULT patched ' } | Select-Object -First 1
-if (-not $pristine -or -not $patched) { throw 'The audio check did not report both variants.' }
+$results = @{}
+foreach ($variant in @('pristine', 'silent', 'ffmpeg')) {
+    $line = $output | Where-Object { $_ -match "^RESULT $variant " } | Select-Object -First 1
+    if (-not $line) { throw "The audio check did not report the $variant variant." }
+    $results[$variant] = $line
+}
 
-if ($pristine -match 'status=0 ' -and $pristine -match 'cues-with-voice-without-decoder=0 ') {
-    Write-Host 'Unpatched FAudio: no voice without a decoder, and no fault. Recheck whether the patch is still needed.'
+if ($results.pristine -match 'status=0 ' -and $results.pristine -match 'cues-with-voice-without-decoder=0 ') {
+    Write-Host 'Unpatched FAudio: no voice without a decoder, and no fault. Recheck whether the patches are still needed.'
 } else {
-    Write-Host "Unpatched FAudio reproduced the fault: $($pristine -replace '^RESULT pristine ', '')"
+    Write-Host "Unpatched FAudio reproduced the fault: $($results.pristine -replace '^RESULT pristine ', '')"
 }
-if ($patched -notmatch 'status=0 ' -or $patched -notmatch 'cues-with-voice-without-decoder=0 ') {
-    throw "Patched FAudio failed the audio check: $patched"
+foreach ($variant in @('silent', 'ffmpeg')) {
+    if ($results[$variant] -notmatch 'status=0 ' -or $results[$variant] -notmatch 'cues-with-voice-without-decoder=0 ') {
+        throw "Patched FAudio ($variant backend) failed the audio check: $($results[$variant])"
+    }
 }
-Write-Host 'PASS: every cue played through the patched FAudio with a live mixer; no voice was left without a decoder.'
+# The Switch build decodes xWMA with FFmpeg, so every WMA cue must be audible.
+if ($results.ffmpeg -notmatch 'cues-with-wma-voice=(\d+) wma-cues-audible=(\d+) ') {
+    throw "Could not read the WMA results: $($results.ffmpeg)"
+}
+$wmaCues = [int]$Matches[1]
+$audibleWmaCues = [int]$Matches[2]
+if ($wmaCues -eq 0 -or $audibleWmaCues -ne $wmaCues) {
+    throw "FFmpeg backend: $audibleWmaCues of $wmaCues WMA cues were audible: $($results.ffmpeg)"
+}
+Write-Host "PASS: every cue played through both patched FAudio builds with a live mixer, no voice was left without a decoder, and all $wmaCues xWMA cues were audible with the FFmpeg backend."

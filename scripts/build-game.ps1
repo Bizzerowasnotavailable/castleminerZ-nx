@@ -99,7 +99,7 @@ foreach ($relative in $trackedNativeFiles) {
 $stageSource = Join-Path $stageAot 'source'
 Remove-Item -LiteralPath (Join-Path $stageSource 'main.c') -Force
 foreach ($name in @('main.cpp', 'sdl_paths.cpp', 'host_paths.h', 'local_profile.cpp', 'local_profile.h',
-        'perf_monitor.cpp', 'perf_monitor.h')) {
+        'perf_monitor.cpp', 'perf_monitor.h', 'sdl_audio_hooks.cpp', 'sdl_audio_hooks.h')) {
     Copy-Item -LiteralPath (Join-Path $repo "runtime-probe\native\$name") `
         -Destination (Join-Path $stageSource $name) -Force
 }
@@ -441,31 +441,42 @@ $msysFaudio = ConvertTo-MsysPath $faudio
 $makefile = Join-Path $stageAot 'Makefile'
 $makefileText = [IO.File]::ReadAllText($makefile)
 if ($makefileText -notmatch 'castleminerZ-nx: FNA native stack') {
-    $nativeLibs = "`n# castleminerZ-nx: FNA native stack (SDL2 + switch-mesa + FNA3D + FAudio)`n" +
+    # FAudio decodes the game's xWMA music with switch-ffmpeg's libavcodec
+    # (see build-native-dependencies.ps1); libavcodec needs the rest of this
+    # group, as listed in its pkg-config file.
+    $nativeLibs = "`n# castleminerZ-nx: FNA native stack (SDL2 + switch-mesa + FNA3D + FAudio + libavcodec)`n" +
         "LIBS += -L$msysFna3d/build-switch -L$msysFaudio/build-switch " +
-        "-lFNA3D -lmojoshader -lFAudio -lSDL2 -lEGL -lglad -lglapi -ldrm_nouveau -lstdc++ -lm -lnx`n"
+        "-lFNA3D -lmojoshader -lFAudio -lavcodec -lswresample -lavutil -ldav1d -lz " +
+        "-lSDL2 -lEGL -lglad -lglapi -ldrm_nouveau -lstdc++ -lm -lnx`n"
     [IO.File]::AppendAllText($makefile, $nativeLibs, (New-Object Text.UTF8Encoding($false)))
 }
 
-# The performance monitor times FNA3D calls through link-time wrappers. The
-# --wrap list comes from the __wrap_ definitions in perf_monitor.cpp, and every
-# wrapper must also have a CMZ_CHECK_WRAPPER signature check, so the source,
-# the checks and the linker flags cannot drift apart.
-$perfSource = [IO.File]::ReadAllText((Join-Path $repo 'runtime-probe\native\perf_monitor.cpp'))
-$wrapped = @([regex]::Matches($perfSource, '\b__wrap_(FNA3D_\w+)\s*\(') |
-    ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)
-$checked = @([regex]::Matches($perfSource, '(?m)^CMZ_CHECK_WRAPPER\((FNA3D_\w+)\);') |
-    ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)
+# The performance monitor (FNA3D timing) and the SDL audio hooks reach their
+# targets through link-time wrappers. The --wrap list comes from the __wrap_
+# definitions in those sources, and every wrapper must also have a signature
+# check (CMZ_CHECK_WRAPPER against the public header, or CMZ_INTERNAL_WRAPPER
+# for an SDL-internal function), so the source, the checks and the linker flags
+# cannot drift apart.
+$wrapped = @()
+$checked = @()
+foreach ($name in @('perf_monitor.cpp', 'sdl_audio_hooks.cpp')) {
+    $text = [IO.File]::ReadAllText((Join-Path $repo "runtime-probe\native\$name"))
+    $wrapped += @([regex]::Matches($text, '\b__wrap_(\w+)\s*\(') | ForEach-Object { $_.Groups[1].Value })
+    $checked += @([regex]::Matches($text, '(?m)^CMZ_(?:CHECK|INTERNAL)_WRAPPER\((\w+)\);') |
+        ForEach-Object { $_.Groups[1].Value })
+}
+$wrapped = @($wrapped | Sort-Object -Unique)
+$checked = @($checked | Sort-Object -Unique)
 if ($wrapped.Count -eq 0 -or (Compare-Object $wrapped $checked)) {
-    throw "perf_monitor.cpp: FNA3D wrappers ($($wrapped -join ', ')) and signature checks ($($checked -join ', ')) differ."
+    throw "Host wrappers ($($wrapped -join ', ')) and signature checks ($($checked -join ', ')) differ."
 }
 if ($makefileText -notmatch 'castleminerZ-nx: performance monitor') {
-    $perfBlock = "`n# castleminerZ-nx: performance monitor (FNA3D timing wrappers)`n" +
+    $perfBlock = "`n# castleminerZ-nx: performance monitor and SDL audio hooks (link-time wrappers)`n" +
         "CXXFLAGS += -I$msysFna3d/include`n" +
         "LDFLAGS += $(($wrapped | ForEach-Object { "-Wl,--wrap=$_" }) -join ' ')`n"
     [IO.File]::AppendAllText($makefile, $perfBlock, (New-Object Text.UTF8Encoding($false)))
 }
-Write-Host "FNA3D timing wrappers: $($wrapped.Count)"
+Write-Host "Link-time wrappers: $($wrapped.Count) ($(@($wrapped | Where-Object { $_ -notlike 'FNA3D_*' }) -join ', ') and FNA3D)"
 
 $command = "set -e; " +
     "export DEVKITPRO='$msysDevkit'; " +

@@ -10,7 +10,8 @@ porting framework for the Xbox Live Indie Games release of **CastleMiner Z**.
 
 ## Current status
 
-**Playable in Eden; physical-hardware validation pending.** CastleMiner Z boots
+**Playable in Eden; boots on a physical Switch, where the frame rate is still
+poor and validation continues.** CastleMiner Z boots
 to its title screen, enters and loads an offline world, and renders the complete
 first-person scene. Terrain, sky, clouds, water, HUD, hotbar icons and the held
 item draw correctly; movement, the first-person camera, the pause menu and the
@@ -41,20 +42,27 @@ Known limitations:
   geometry is read or rendered. A project-authored placeholder body is future
   work.
 - **Audio:** FNA/FAudio and the XACT bank loader are linked, and the sound-effect
-  bank is PCM. The 11 streaming entries (music and ambience) are xWMA, and there
-  is no xWMA decoder for Switch. Upstream FAudio leaves such voices without a
-  decode function and its mixer then calls a null pointer; on hardware that
-  crashed the game as soon as the title music started. `patches/faudio` plays
-  them as timed silence instead, so **music is currently silent**. Eden's audren
-  renderer never consumes SDL wave buffers (a standalone SDL tone gets one
-  callback and then blocks), so no SDL audio can be heard in Eden;
-  `scripts/test-xact-audio.ps1` plays the game's cues through a live mixer on
-  the host instead. Hardware audio validation remains open.
+  bank is PCM. The 11 streaming entries (music and ambience) are xWMA, which
+  upstream FAudio decodes only through Windows Media Foundation. Without a
+  decoder its mixer called a null pointer, which crashed the game on hardware as
+  soon as the title music started. `patches/faudio` decodes xWMA with FFmpeg's
+  `wmav2` decoder from devkitPro's `switch-ffmpeg` port; anything it cannot open
+  plays as timed silence instead of crashing. On the host,
+  `scripts/test-xact-audio.ps1` plays the game's cues through a live mixer and
+  all 11 xWMA cues are audible. In Eden, `perf.log` shows the mixer producing
+  the title music, but Eden's audren renderer never consumes SDL wave buffers (a
+  standalone SDL tone gets one callback and then blocks), so nothing is audible
+  there. SDL's audio thread runs at priority 0x2A, above the game's threads,
+  instead of SDL's lowest-priority default. Audio on hardware is being
+  validated; `perf.log` records the audio device and mixer output for that.
 - **Validation:** inventory, combat, and a full power-cycle save/load test still
-  need complete passes; no physical Switch run has been completed.
+  need complete passes. On hardware the game boots and runs (owner reports), but
+  the frame rate is poor; hardware measurements are being collected with the
+  tools in [`docs/performance.md`](docs/performance.md).
 - **Behavior note:** brief full-sky white flashes are the game's original
-  `drawLightning` storm effect (10–40 s cadence above ground), not a corrupted
-  cubemap.
+  lightning, not a rendering fault. Above ground the game flashes the sky white
+  0–3 times, 0.1–0.35 s apart, every 10–39 s, followed by thunder. Each flash
+  lasts one game update, so it stays on screen longer at a low frame rate.
 
 The project also provides:
 
@@ -68,8 +76,10 @@ The project also provides:
 - a deterministic relinker that routes every legacy XNA type and member onto FNA
   or the compatibility assembly;
 - the full native stack (SDL2 → EGL → switch-mesa GLES 3.0 → FNA3D →
-  MojoShader, plus FAudio) linked into the Mono static-AOT image with no
-  undefined symbols;
+  MojoShader, plus FAudio with an FFmpeg xWMA decoder) linked into the Mono
+  static-AOT image with no undefined symbols;
+- always-on frame, GC and audio logging and an opt-in sampling profiler for
+  hardware runs ([`docs/performance.md`](docs/performance.md));
 - ten project-authored replacement effects for the Xbox GPU binaries, with
   MojoShader GLSL ES 3 translation and interface tests;
 - Xbox cubemap and raw model-buffer byte-order fixes, verified in Eden; and
@@ -221,6 +231,8 @@ graphics work is game-side.
 - [`docs/playability.md`](docs/playability.md) is the gate-by-gate plan to a
   running game, with exit criteria.
 - [`docs/roadmap.md`](docs/roadmap.md) tracks the remaining work to gameplay.
+- [`docs/performance.md`](docs/performance.md) explains `perf.log`, the
+  sampling profiler and the measurements so far.
 
 ## Distributing builds
 
@@ -253,8 +265,8 @@ On hardware, launch in **full application mode** (hold R while starting an
 installed game to open hbmenu), not from the album. The Mono runtime needs the
 full memory budget and refuses applet mode.
 
-The NRO also is not yet hardware-validated; Eden is the only tested
-environment, and audio remains blocked there.
+On hardware the NRO boots (owner reports); audio, frame rate and full gameplay
+are still being validated there. Eden cannot play SDL audio.
 
 ## Legal
 

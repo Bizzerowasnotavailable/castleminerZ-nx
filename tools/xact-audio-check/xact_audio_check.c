@@ -1,7 +1,8 @@
 /*
  * xact_audio_check: plays every cue of an XACT project through FACT the way
  * FNA's AudioEngine, WaveBank and SoundBank do, with a mixer thread that keeps
- * running, and checks that no source voice is left without a decoder.
+ * running. It checks that no source voice is left without a decoder and
+ * measures the peak level reaching the mastering voice for each cue.
  *
  * Eden never runs the audio mixer past its first callback, so audio faults that
  * only occur while mixing are invisible there. This tool reproduces the mixing
@@ -18,7 +19,9 @@
  * The inputs are the user's own files. The tool reads them and writes nothing.
  *
  * It inspects FAudio's internal voice list, so it must be compiled with the
- * same HAVE_WMADEC/FAUDIO_SILENT_WMADEC definitions as the libFAudio.a it links.
+ * same HAVE_WMADEC/FAUDIO_*_WMADEC definitions as the libFAudio.a it links.
+ * "wma" voices are those on FAudio's WMADEC path (xWMA/XMA2): with the silent
+ * backend they play as silence, with the FFmpeg backend they are decoded.
  *
  * Exit status: 0 = every voice had a decoder and every cue ran; 2 = at least one
  * voice had no decoder; 1 = setup failure.
@@ -33,22 +36,29 @@
 
 #include "FACT.h"
 #include "FAudio.h"
+#include "FAudioFX.h"
+#include "FAPO.h"
 /* FACT_internal.h includes FAudio_internal.h, which has no include guard. */
 #include "FACT_internal.h"
+
+/* A cue counts as audible when its mix peaks above this level (-60 dBFS). */
+#define AUDIBLE_PEAK 0.001f
 
 typedef struct VoiceReport
 {
 	int voices;
 	int without_decoder;
-	int silent_backend;
-	uint64_t silent_samples;
-	uint32_t silent_rate;
-	/* First silent voice: length of its current buffer, and position in it. */
-	uint32_t silent_buffer_samples;
-	uint32_t silent_offset;
+	int wma_voices;
+	uint64_t wma_samples;
+	uint32_t wma_rate;
+	/* First WMA voice: length of its current buffer, and position in it. */
+	uint32_t wma_buffer_samples;
+	uint32_t wma_offset;
 } VoiceReport;
 
 static int notification_counts[16];
+static FAudioVoice *meter_voice;
+static uint32_t meter_channels;
 
 static void FACTCALL on_notification(const FACTNotification *notification)
 {
@@ -106,7 +116,7 @@ static void inspect_voices(FACTAudioEngine *engine, VoiceReport *report)
 		if (voice->src.wmadec != NULL)
 		{
 			has_decoder = 1;
-			if (report->silent_backend == 0)
+			if (report->wma_voices == 0)
 			{
 				FAudio_PlatformLockMutex(voice->src.bufferLock);
 				if (voice->src.queued_buffer_count > 0)
@@ -115,17 +125,17 @@ static void inspect_voices(FACTAudioEngine *engine, VoiceReport *report)
 					const uint32_t frame_bytes = voice->src.format->nChannels * voice->src.format->wBitsPerSample / 8;
 					if (buffer->bufferWMA.PacketCount > 0 && frame_bytes > 0)
 					{
-						report->silent_buffer_samples =
+						report->wma_buffer_samples =
 							buffer->bufferWMA.pDecodedPacketCumulativeBytes[buffer->bufferWMA.PacketCount - 1] /
 							frame_bytes;
 					}
 				}
-				report->silent_offset = voice->src.curBufferOffset;
+				report->wma_offset = voice->src.curBufferOffset;
 				FAudio_PlatformUnlockMutex(voice->src.bufferLock);
 			}
-			report->silent_backend += 1;
-			report->silent_samples += voice->src.totalSamples;
-			report->silent_rate = voice->src.format->nSamplesPerSec;
+			report->wma_voices += 1;
+			report->wma_samples += voice->src.totalSamples;
+			report->wma_rate = voice->src.format->nSamplesPerSec;
 		}
 #endif /* HAVE_WMADEC */
 
@@ -148,6 +158,82 @@ static void register_notification(FACTAudioEngine *engine, uint8_t type)
 	FACTAudioEngine_RegisterNotification(engine, &description);
 }
 
+/* Measures the mix with FAudio's volume meter on the mastering voice. */
+static void attach_meter(FACTAudioEngine *engine)
+{
+	FAPO *meter = NULL;
+	FAudioVoiceDetails details;
+	FAudioEffectDescriptor descriptor;
+	FAudioEffectChain chain;
+
+	if (engine->master == NULL || FAudioCreateVolumeMeter(&meter, 0) != 0)
+	{
+		printf("volume meter unavailable\n");
+		return;
+	}
+	FAudioVoice_GetVoiceDetails(engine->master, &details);
+	descriptor.pEffect = meter;
+	descriptor.InitialState = 1;
+	descriptor.OutputChannels = details.InputChannels;
+	chain.EffectCount = 1;
+	chain.pEffectDescriptors = &descriptor;
+	if (FAudioVoice_SetEffectChain(engine->master, &chain) == 0 && details.InputChannels <= 8)
+	{
+		meter_voice = engine->master;
+		meter_channels = details.InputChannels;
+	}
+	else
+	{
+		printf("volume meter not attached\n");
+	}
+	meter->Release(meter);
+}
+
+static float read_peak(void)
+{
+	float peaks[8] = {0};
+	float rms[8] = {0};
+	FAudioFXVolumeMeterLevels levels;
+	float peak = 0.0f;
+	uint32_t channel;
+
+	if (meter_voice == NULL)
+	{
+		return -1.0f;
+	}
+	levels.pPeakLevels = peaks;
+	levels.pRMSLevels = rms;
+	levels.ChannelCount = meter_channels;
+	FAudioVoice_GetEffectParameters(meter_voice, 0, &levels, sizeof(levels));
+	for (channel = 0; channel < meter_channels; channel += 1)
+	{
+		if (peaks[channel] > peak)
+		{
+			peak = peaks[channel];
+		}
+	}
+	return peak;
+}
+
+/* Waits `milliseconds` while the mixer runs, returning the highest peak seen. */
+static float wait_and_measure(uint32_t milliseconds)
+{
+	float highest = 0.0f;
+	uint32_t elapsed;
+
+	for (elapsed = 0; elapsed < milliseconds; elapsed += 5)
+	{
+		float peak;
+		SDL_Delay(5);
+		peak = read_peak();
+		if (peak > highest)
+		{
+			highest = peak;
+		}
+	}
+	return highest;
+}
+
 int main(int argc, char **argv)
 {
 	FACTAudioEngine *engine = NULL;
@@ -162,8 +248,8 @@ int main(int argc, char **argv)
 	uint16_t cue_count = 0, wave_count = 0;
 	uint32_t window_ms = 200;
 	const char *soak_cue = NULL;
-	int cues_with_voices = 0, cues_without_decoder = 0, cues_silent = 0;
-	int silent_cues_still_playing = 0;
+	int cues_with_voices = 0, cues_without_decoder = 0, cues_wma = 0;
+	int wma_cues_still_playing = 0, wma_cues_audible = 0, cues_audible = 0;
 	uint32_t result;
 	uint16_t index;
 
@@ -212,6 +298,7 @@ int main(int argc, char **argv)
 	register_notification(engine, FACTNOTIFICATIONTYPE_SOUNDBANKDESTROYED);
 	register_notification(engine, FACTNOTIFICATIONTYPE_CUEDESTROYED);
 	printf("audio driver in use: %s\n", SDL_GetCurrentAudioDriver() ? SDL_GetCurrentAudioDriver() : "(none)");
+	attach_meter(engine);
 
 	/* WaveBank(engine, file): whole file in memory. */
 	result = FACTAudioEngine_CreateInMemoryWaveBank(engine, wave_data, wave_size, 0, 0, &in_memory_bank);
@@ -283,6 +370,7 @@ int main(int argc, char **argv)
 		FACTCue *cue = NULL;
 		VoiceReport started, later;
 		uint32_t state = 0;
+		float peak = 0.0f;
 
 		memset(&properties, 0, sizeof(properties));
 		FACTSoundBank_GetCueProperties(sound_bank, index, &properties);
@@ -295,12 +383,12 @@ int main(int argc, char **argv)
 		result = FACTSoundBank_Play(sound_bank, index, 0, 0, &cue);
 		FACTAudioEngine_DoWork(engine);
 		inspect_voices(engine, &started);
-		printf("voices=%d no-decoder=%d silent=%d", started.voices, started.without_decoder, started.silent_backend);
+		printf("voices=%d no-decoder=%d wma=%d", started.voices, started.without_decoder, started.wma_voices);
 
 		/* The mixer runs on the SDL audio thread meanwhile. */
 		if (soak_cue == NULL)
 		{
-			SDL_Delay(window_ms);
+			peak = wait_and_measure(window_ms);
 		}
 		else
 		{
@@ -309,7 +397,11 @@ int main(int argc, char **argv)
 			printf("\n");
 			for (elapsed = 1000; elapsed <= window_ms; elapsed += 1000)
 			{
-				SDL_Delay(1000);
+				const float second_peak = wait_and_measure(1000);
+				if (second_peak > peak)
+				{
+					peak = second_peak;
+				}
 				FACTAudioEngine_DoWork(engine);
 				inspect_voices(engine, &later);
 				state = 0;
@@ -318,14 +410,15 @@ int main(int argc, char **argv)
 					FACTCue_GetState(cue, &state);
 				}
 				printf(
-					"  t=%3u s state=0x%02X voices=%d silent=%d silent-samples=%llu offset=%u/%u\n",
+					"  t=%3u s state=0x%02X voices=%d wma=%d wma-samples=%llu offset=%u/%u peak=%.4f\n",
 					elapsed / 1000,
 					state,
 					later.voices,
-					later.silent_backend,
-					(unsigned long long) later.silent_samples,
-					later.silent_offset,
-					later.silent_buffer_samples
+					later.wma_voices,
+					(unsigned long long) later.wma_samples,
+					later.wma_offset,
+					later.wma_buffer_samples,
+					second_peak
 				);
 			}
 		}
@@ -335,7 +428,7 @@ int main(int argc, char **argv)
 		{
 			FACTCue_GetState(cue, &state);
 		}
-		printf(" state=0x%02X", state);
+		printf(" state=0x%02X peak=%.4f", state, peak);
 
 		if (started.voices > 0)
 		{
@@ -345,17 +438,25 @@ int main(int argc, char **argv)
 		{
 			cues_without_decoder += 1;
 		}
-		if (started.silent_backend > 0)
+		if (peak > AUDIBLE_PEAK)
 		{
-			/* Silent voices must still advance at the real rate, not end at once. */
-			double expected = (double) later.silent_rate * window_ms / 1000.0 * later.silent_backend;
-			double advanced = (double) (later.silent_samples - started.silent_samples);
-			cues_silent += 1;
+			cues_audible += 1;
+		}
+		if (started.wma_voices > 0)
+		{
+			/* WMA voices must advance at the real rate, not end at once. */
+			double expected = (double) later.wma_rate * window_ms / 1000.0 * later.wma_voices;
+			double advanced = (double) (later.wma_samples - started.wma_samples);
+			cues_wma += 1;
 			if (state & FACT_STATE_PLAYING)
 			{
-				silent_cues_still_playing += 1;
+				wma_cues_still_playing += 1;
 			}
-			printf(" silent-progress=%.0f/%.0f samples", advanced, expected);
+			if (peak > AUDIBLE_PEAK)
+			{
+				wma_cues_audible += 1;
+			}
+			printf(" wma-progress=%.0f/%.0f samples", advanced, expected);
 		}
 		printf(" (play=0x%08X)\n", result);
 
@@ -366,6 +467,8 @@ int main(int argc, char **argv)
 			FACTCue_Destroy(cue);
 		}
 		FACTAudioEngine_DoWork(engine);
+		/* Let the stopped cue's tail leave the meter before the next cue. */
+		SDL_Delay(30);
 	}
 
 	FACTSoundBank_Destroy(sound_bank);
@@ -378,12 +481,14 @@ int main(int argc, char **argv)
 	SDL_free(sound_data);
 
 	printf(
-		"summary: cues=%u with-voices=%d without-decoder=%d silent=%d silent-still-playing=%d cue-destroyed-notifications=%d\n",
+		"summary: cues=%u with-voices=%d without-decoder=%d audible=%d wma=%d wma-audible=%d wma-still-playing=%d cue-destroyed-notifications=%d\n",
 		cue_count,
 		cues_with_voices,
 		cues_without_decoder,
-		cues_silent,
-		silent_cues_still_playing,
+		cues_audible,
+		cues_wma,
+		wma_cues_audible,
+		wma_cues_still_playing,
 		notification_counts[FACTNOTIFICATIONTYPE_CUEDESTROYED]
 	);
 	return cues_without_decoder > 0 ? 2 : 0;

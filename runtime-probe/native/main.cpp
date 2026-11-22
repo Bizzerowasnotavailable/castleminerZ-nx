@@ -83,26 +83,6 @@ bool ensure_directory(const char* path) {
     return mkdir(path, 0777) == 0;
 }
 
-// SDL is the layer between FAudio and the console audio services. On the
-// Switch port the audio driver is selected at runtime and can silently fall
-// back to "dummy", which runs the mixer but produces no sound. Route SDL's own
-// log through host.log so driver-selection failures stay visible.
-void sdl_log_to_host(void* /*userdata*/, int category,
-                     SDL_LogPriority priority, const char* message) {
-    const char* level = "?";
-    switch (priority) {
-        case SDL_LOG_PRIORITY_VERBOSE: level = "verbose"; break;
-        case SDL_LOG_PRIORITY_DEBUG: level = "debug"; break;
-        case SDL_LOG_PRIORITY_INFO: level = "info"; break;
-        case SDL_LOG_PRIORITY_WARN: level = "warn"; break;
-        case SDL_LOG_PRIORITY_ERROR: level = "error"; break;
-        case SDL_LOG_PRIORITY_CRITICAL: level = "critical"; break;
-        default: break;
-    }
-    log_line("SDL[%s/%d]: %s", level, category,
-             message != nullptr ? message : "(null)");
-}
-
 // "stfs:/584E07D1/Content" -> "stfs:/584E07D1/"; "Content" -> "stfs:/"
 std::string base_directory_for(const std::string& content_directory) {
     const std::size_t separator = content_directory.rfind('/');
@@ -151,6 +131,13 @@ void configure_environment() {
     // The base path is provided by sdl_paths.cpp, so this only keeps FNA from
     // preferring AppDomain.CurrentDomain.BaseDirectory if the order changes.
     setenv("FNA_SDL_FORCE_BASE_PATH", "1", 1);
+
+    // Leave SGen's nursery at its default 4 MB. SGen aligns the nursery to its
+    // size, but mono-nx's fake mmap aligns allocations relative to a heap start
+    // that is only 4 MB-aligned (native/shared/heap.c). A 16 MB nursery
+    // therefore aborted mono_jit_init on hardware ("mono_valloc_aligned:
+    // returned pointer ... is not aligned to 1000000") whenever the heap did
+    // not happen to start on a 16 MB boundary.
 }
 
 } // namespace
@@ -182,6 +169,27 @@ void cmz_host_log(const char* message) {
     log_line("managed: %s", message != nullptr ? message : "(null)");
 }
 
+// SDL is the layer between FAudio and the console audio services. On the
+// Switch port the audio driver is selected at runtime and can silently fall
+// back to "dummy", which runs the mixer but produces no sound. Route SDL's own
+// log through host.log so driver-selection failures stay visible. Exported so
+// sdl_audio_hooks.cpp can tell whether something replaced it later.
+void cmz_sdl_log_to_host(void* /*userdata*/, int category,
+                         SDL_LogPriority priority, const char* message) {
+    const char* level = "?";
+    switch (priority) {
+        case SDL_LOG_PRIORITY_VERBOSE: level = "verbose"; break;
+        case SDL_LOG_PRIORITY_DEBUG: level = "debug"; break;
+        case SDL_LOG_PRIORITY_INFO: level = "info"; break;
+        case SDL_LOG_PRIORITY_WARN: level = "warn"; break;
+        case SDL_LOG_PRIORITY_ERROR: level = "error"; break;
+        case SDL_LOG_PRIORITY_CRITICAL: level = "critical"; break;
+        default: break;
+    }
+    log_line("SDL[%s/%d]: %s", level, category,
+             message != nullptr ? message : "(null)");
+}
+
 } // extern "C"
 
 int main(int argc, char* argv[]) {
@@ -193,7 +201,7 @@ int main(int argc, char* argv[]) {
     if (log_directory_ready) {
         g_log = std::fopen(kLogPath, "w");
     }
-    SDL_LogSetOutputFunction(sdl_log_to_host, nullptr);
+    SDL_LogSetOutputFunction(cmz_sdl_log_to_host, nullptr);
 
     // The managed root device maps "/save" and "/data" onto the SD card. Create
     // both before managed code runs so FNA's pref path exists on first boot.

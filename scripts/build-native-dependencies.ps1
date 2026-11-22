@@ -61,16 +61,23 @@ Invoke-SwitchCMake (Join-Path $Workspace 'FNA3D') @(
     '-DTRACING_SUPPORT=OFF',
     '-DMOJOSHADER_STATIC_SPIRVCROSS=OFF'
 )
-# There is no xWMA/XMA2 decoder for Switch. Without one, FAudio leaves those
-# voices with a null decode function and the mixer calls it as soon as the
-# game's streaming music starts. That faults on hardware; Eden never runs the
-# mixer that far. SILENT_WMA_DECODING (patches/faudio) plays them as timed
-# silence instead.
+# The game's music and ambience are xWMA. Upstream FAudio decodes xWMA only
+# through Win32 Media Foundation; without a backend it leaves those voices with
+# a null decode function, and the mixer faulted on hardware as soon as the title
+# music started. FFMPEG_WMA_DECODING (patches/faudio) decodes them with the
+# devkitPro switch-ffmpeg port's libavcodec; anything it cannot open plays as
+# timed silence. SILENT_WMA_DECODING is the decoder-free fallback; switch it
+# off explicitly because an older build directory may have it cached.
+$avcodecHeader = Join-Path $DevkitPro 'portlibs\switch\include\libavcodec\avcodec.h'
+if (-not (Test-Path -LiteralPath $avcodecHeader -PathType Leaf)) {
+    throw "switch-ffmpeg is not installed ($avcodecHeader is missing). Install it with: pacman -S switch-ffmpeg"
+}
 Invoke-SwitchCMake (Join-Path $Workspace 'FAudio') @(
     '-DBUILD_SDL3=OFF',
     '-DBUILD_TESTS=OFF',
     '-DBUILD_UTILS=OFF',
-    '-DSILENT_WMA_DECODING=ON'
+    '-DSILENT_WMA_DECODING=OFF',
+    '-DFFMPEG_WMA_DECODING=ON'
 )
 
 $outputs = @(

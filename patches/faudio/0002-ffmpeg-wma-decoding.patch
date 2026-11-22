@@ -1,0 +1,500 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 219cb98..fa37d6f 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -187,6 +187,28 @@ if(DUMP_VOICES)
+ 	target_compile_definitions(${target} PRIVATE FAUDIO_DUMP_VOICES)
+ endif()
+ 
++# Decode xWMA with FFmpeg's libavcodec where Media Foundation is unavailable.
++# Formats libavcodec cannot open here play as timed silence.
++option(FFMPEG_WMA_DECODING "Decode xWMA with FFmpeg's libavcodec" OFF)
++if(FFMPEG_WMA_DECODING)
++	if(WMA_DECODING OR SILENT_WMA_DECODING)
++		message(FATAL_ERROR "FFMPEG_WMA_DECODING cannot be combined with WMA_DECODING or SILENT_WMA_DECODING")
++	endif()
++	find_path(FFMPEG_AVCODEC_INCLUDE_DIR libavcodec/avcodec.h REQUIRED)
++	target_sources(${target} PRIVATE src/FAudio_ffmpeg_wmadec.c)
++	target_include_directories(${target} PRIVATE ${FFMPEG_AVCODEC_INCLUDE_DIR})
++	target_compile_definitions(${target} PRIVATE HAVE_WMADEC=1 FAUDIO_FFMPEG_WMADEC=1)
++	# The Media Foundation backend is always in the source list; this
++	# definition compiles it out (see its preprocessor guard).
++	set_source_files_properties(src/FAudio_platform_win32_wmadec.c
++		PROPERTIES COMPILE_DEFINITIONS FAUDIO_SILENT_WMADEC=1)
++	if(BUILD_SHARED_LIBS)
++		find_library(FFMPEG_AVCODEC_LIBRARY avcodec REQUIRED)
++		find_library(FFMPEG_AVUTIL_LIBRARY avutil REQUIRED)
++		target_link_libraries(${target} PRIVATE ${FFMPEG_AVCODEC_LIBRARY} ${FFMPEG_AVUTIL_LIBRARY})
++	endif()
++endif()
++
+ # SDL Dependency
+ set(FAUDIO_USING_SDL2_PACKAGE OFF)
+ set(FAUDIO_USING_SDL3_PACKAGE OFF)
+diff --git a/src/FAudio_ffmpeg_wmadec.c b/src/FAudio_ffmpeg_wmadec.c
+new file mode 100644
+index 0000000..6ce823a
+--- /dev/null
++++ b/src/FAudio_ffmpeg_wmadec.c
+@@ -0,0 +1,461 @@
++/* FAudio WMADEC implementation over FFmpeg's libavcodec.
++ *
++ * Decodes xWMA (WMAUDIO2) source voices, the format of XACT streaming wave
++ * banks, with libavcodec's wmav2 decoder. FAudio's HAVE_WMADEC bookkeeping
++ * supplies buffer lengths from the xWMA packet table; this backend only turns
++ * the requested sample range of the current buffer into float samples.
++ *
++ * Decoding is sequential. The mixer asks for [curBufferOffset, +count), may
++ * re-read the next two samples (resampler padding), and moves backwards only
++ * when a buffer loops; a backwards move restarts decoding from the buffer's
++ * first packet. Only the samples from the current position onwards are kept.
++ *
++ * A format libavcodec cannot open here (WMA Pro, WMA Lossless, XMA2), or a
++ * decoder failure, plays as silence of the correct length instead of failing
++ * voice creation, so audio problems cannot stop the game.
++ */
++
++#include "FAudio_internal.h"
++
++#ifdef FAUDIO_FFMPEG_WMADEC
++
++#include <stdarg.h>
++
++#include <libavcodec/avcodec.h>
++#include <libavutil/channel_layout.h>
++#include <libavutil/log.h>
++#include <libavutil/mem.h>
++
++struct FAudioWMADEC
++{
++	AVCodecContext *codec;
++	AVPacket *packet;
++	AVFrame *frame;
++	uint8_t *packet_data;	/* One xWMA packet plus libavcodec's zero padding */
++	uint32_t channels;
++	uint32_t block_align;
++	uint8_t failed;		/* Play the rest of this voice as silence */
++
++	/* Decoder position within the current buffer */
++	const uint8_t *source;
++	uint32_t source_bytes;
++	uint32_t next_packet;
++	uint32_t packet_count;
++	uint8_t draining;
++	uint8_t finished;
++
++	/* Decoded interleaved samples [window_start, window_end) of the buffer */
++	float *window;
++	uint32_t window_start;
++	uint32_t window_end;
++	uint32_t window_capacity; /* In sample frames */
++};
++
++static int ffmpeg_messages;
++
++static void FAudio_FFMPEG_Report(const char *format, ...)
++{
++	char message[256];
++	va_list args;
++
++	/* Every message goes to an SD card log on consoles; keep it bounded. */
++	if (__atomic_fetch_add(&ffmpeg_messages, 1, __ATOMIC_RELAXED) >= 32)
++	{
++		return;
++	}
++	va_start(args, format);
++	FAudio_vsnprintf(message, sizeof(message), format, args);
++	va_end(args);
++	FAudio_Log(message);
++}
++
++static void FAudio_FFMPEG_LogCallback(void *context, int level, const char *format, va_list args)
++{
++	char message[224];
++	size_t length;
++
++	(void) context;
++	if (level > AV_LOG_ERROR)
++	{
++		return;
++	}
++	FAudio_vsnprintf(message, sizeof(message), format, args);
++	length = FAudio_strlen(message);
++	while (length > 0 && (message[length - 1] == '\n' || message[length - 1] == '\r'))
++	{
++		message[--length] = '\0';
++	}
++	FAudio_FFMPEG_Report("FAudio: libavcodec: %s", message);
++}
++
++static void FAudio_FFMPEG_ReleaseDecoder(struct FAudioWMADEC *impl)
++{
++	avcodec_free_context(&impl->codec);
++	av_packet_free(&impl->packet);
++	av_frame_free(&impl->frame);
++	av_freep(&impl->packet_data);
++}
++
++static void FAudio_FFMPEG_ResetPosition(struct FAudioWMADEC *impl)
++{
++	impl->source = NULL;
++	impl->source_bytes = 0;
++	impl->next_packet = 0;
++	impl->packet_count = 0;
++	impl->draining = 0;
++	impl->finished = 0;
++	impl->window_start = 0;
++	impl->window_end = 0;
++}
++
++uint32_t FAudio_WMADEC_init(FAudioSourceVoice *voice, uint32_t type)
++{
++	static uint8_t logging_configured;
++	const FAudioWaveFormatEx *format = voice->src.format;
++	const AVCodec *decoder = NULL;
++	struct FAudioWMADEC *impl;
++
++	LOG_FUNC_ENTER(voice->audio)
++
++	impl = (struct FAudioWMADEC*) voice->audio->pMalloc(sizeof(struct FAudioWMADEC));
++	if (impl == NULL)
++	{
++		LOG_FUNC_EXIT(voice->audio)
++		return FAUDIO_E_OUT_OF_MEMORY;
++	}
++	FAudio_zero(impl, sizeof(struct FAudioWMADEC));
++	impl->channels = format->nChannels;
++	impl->block_align = format->nBlockAlign;
++	voice->src.wmadec = impl;
++	voice->src.decode = NULL;
++
++	if (!logging_configured)
++	{
++		logging_configured = 1;
++		av_log_set_callback(FAudio_FFMPEG_LogCallback);
++	}
++
++	if (	type == FAUDIO_FORMAT_WMAUDIO2 &&
++		format->nChannels >= 1 &&
++		format->nChannels <= 2 &&
++		format->nBlockAlign > 0 &&
++		format->nSamplesPerSec > 0	)
++	{
++		decoder = avcodec_find_decoder(AV_CODEC_ID_WMAV2);
++	}
++	if (decoder == NULL)
++	{
++		FAudio_FFMPEG_Report(
++			"FAudio: format 0x%X (%u ch, %u Hz) has no decoder in this build; it plays as silence",
++			(unsigned int) type,
++			(unsigned int) format->nChannels,
++			(unsigned int) format->nSamplesPerSec
++		);
++		impl->failed = 1;
++		LOG_FUNC_EXIT(voice->audio)
++		return 0;
++	}
++
++	impl->codec = avcodec_alloc_context3(decoder);
++	impl->packet = av_packet_alloc();
++	impl->frame = av_frame_alloc();
++	impl->packet_data = (uint8_t*) av_mallocz(format->nBlockAlign + AV_INPUT_BUFFER_PADDING_SIZE);
++	if (	impl->codec == NULL ||
++		impl->packet == NULL ||
++		impl->frame == NULL ||
++		impl->packet_data == NULL	)
++	{
++		FAudio_FFMPEG_Report("FAudio: out of memory creating the xWMA decoder; this voice plays as silence");
++		FAudio_FFMPEG_ReleaseDecoder(impl);
++		impl->failed = 1;
++		LOG_FUNC_EXIT(voice->audio)
++		return 0;
++	}
++
++	impl->codec->sample_rate = format->nSamplesPerSec;
++	av_channel_layout_default(&impl->codec->ch_layout, format->nChannels);
++	impl->codec->bit_rate = (int64_t) format->nAvgBytesPerSec * 8;
++	impl->codec->block_align = format->nBlockAlign;
++
++	/* xWMA carries no codec data. These are the flags XAudio2 assumes:
++	 * exponent VLC, bit reservoir and variable block length (the same
++	 * value FFmpeg's xWMA demuxer and FAudio's Win32 backend use).
++	 */
++	impl->codec->extradata = (uint8_t*) av_mallocz(6 + AV_INPUT_BUFFER_PADDING_SIZE);
++	if (impl->codec->extradata == NULL)
++	{
++		FAudio_FFMPEG_Report("FAudio: out of memory creating the xWMA decoder; this voice plays as silence");
++		FAudio_FFMPEG_ReleaseDecoder(impl);
++		impl->failed = 1;
++		LOG_FUNC_EXIT(voice->audio)
++		return 0;
++	}
++	impl->codec->extradata_size = 6;
++	impl->codec->extradata[4] = 31;
++
++	if (avcodec_open2(impl->codec, decoder, NULL) < 0)
++	{
++		FAudio_FFMPEG_Report(
++			"FAudio: wmav2 rejected %u ch, %u Hz, %u B/s, block %u; this voice plays as silence",
++			(unsigned int) format->nChannels,
++			(unsigned int) format->nSamplesPerSec,
++			(unsigned int) format->nAvgBytesPerSec,
++			(unsigned int) format->nBlockAlign
++		);
++		FAudio_FFMPEG_ReleaseDecoder(impl);
++		impl->failed = 1;
++		LOG_FUNC_EXIT(voice->audio)
++		return 0;
++	}
++
++	LOG_FUNC_EXIT(voice->audio)
++	return 0;
++}
++
++void FAudio_WMADEC_free(FAudioSourceVoice *voice)
++{
++	struct FAudioWMADEC *impl = voice->src.wmadec;
++
++	LOG_FUNC_ENTER(voice->audio)
++	FAudio_FFMPEG_ReleaseDecoder(impl);
++	if (impl->window != NULL)
++	{
++		voice->audio->pFree(impl->window);
++	}
++	voice->audio->pFree(impl);
++	voice->src.wmadec = NULL;
++	LOG_FUNC_EXIT(voice->audio)
++}
++
++void FAudio_WMADEC_end_buffer(FAudioSourceVoice *voice)
++{
++	/* The next buffer, even at the same address, starts from its first packet. */
++	FAudio_FFMPEG_ResetPosition(voice->src.wmadec);
++}
++
++/* Drops decoded samples before `position`; the mixer never reads them again. */
++static void FAudio_FFMPEG_Trim(struct FAudioWMADEC *impl, uint32_t position)
++{
++	uint32_t drop, keep;
++
++	if (position <= impl->window_start)
++	{
++		return;
++	}
++	drop = FAudio_min(position, impl->window_end) - impl->window_start;
++	keep = impl->window_end - impl->window_start - drop;
++	if (drop > 0 && keep > 0)
++	{
++		FAudio_memmove(
++			impl->window,
++			impl->window + ((size_t) drop * impl->channels),
++			(size_t) keep * impl->channels * sizeof(float)
++		);
++	}
++	impl->window_start += drop;
++}
++
++/* Appends one decoded frame to the window. Returns 0 on failure. */
++static int FAudio_FFMPEG_Append(FAudio *audio, struct FAudioWMADEC *impl, const AVFrame *frame)
++{
++	const uint32_t count = (uint32_t) frame->nb_samples;
++	const uint32_t channels = impl->channels;
++	const uint32_t stored = impl->window_end - impl->window_start;
++	float *out;
++	uint32_t i, c;
++
++	if (frame->nb_samples <= 0)
++	{
++		return 1;
++	}
++	if ((uint32_t) frame->ch_layout.nb_channels != channels)
++	{
++		FAudio_FFMPEG_Report(
++			"FAudio: wmav2 produced %d channels for a %u-channel voice; it plays as silence",
++			frame->ch_layout.nb_channels,
++			(unsigned int) channels
++		);
++		return 0;
++	}
++	if (stored + count > impl->window_capacity)
++	{
++		uint32_t capacity = FAudio_max(impl->window_capacity * 2, stored + count);
++		float *grown = (float*) audio->pRealloc(
++			impl->window,
++			(size_t) capacity * channels * sizeof(float)
++		);
++		if (grown == NULL)
++		{
++			FAudio_FFMPEG_Report("FAudio: out of memory decoding xWMA; it plays as silence");
++			return 0;
++		}
++		impl->window = grown;
++		impl->window_capacity = capacity;
++	}
++
++	out = impl->window + ((size_t) stored * channels);
++	switch (frame->format)
++	{
++	case AV_SAMPLE_FMT_FLTP:
++		for (c = 0; c < channels; c += 1)
++		{
++			const float *in = (const float*) frame->extended_data[c];
++			for (i = 0; i < count; i += 1)
++			{
++				out[i * channels + c] = in[i];
++			}
++		}
++		break;
++	case AV_SAMPLE_FMT_FLT:
++		FAudio_memcpy(out, frame->extended_data[0], (size_t) count * channels * sizeof(float));
++		break;
++	case AV_SAMPLE_FMT_S16P:
++		for (c = 0; c < channels; c += 1)
++		{
++			const int16_t *in = (const int16_t*) frame->extended_data[c];
++			for (i = 0; i < count; i += 1)
++			{
++				out[i * channels + c] = in[i] / 32768.0f;
++			}
++		}
++		break;
++	case AV_SAMPLE_FMT_S16:
++		{
++			const int16_t *in = (const int16_t*) frame->extended_data[0];
++			for (i = 0; i < count * channels; i += 1)
++			{
++				out[i] = in[i] / 32768.0f;
++			}
++		}
++		break;
++	default:
++		FAudio_FFMPEG_Report(
++			"FAudio: wmav2 produced unsupported sample format %d; it plays as silence",
++			frame->format
++		);
++		return 0;
++	}
++	impl->window_end += count;
++	return 1;
++}
++
++/* One unit of decoding progress: a frame received, a packet or the end of
++ * stream sent, or the end of the buffer reached. Returns 0 when no further
++ * samples can be produced for this buffer.
++ */
++static int FAudio_FFMPEG_Step(FAudio *audio, struct FAudioWMADEC *impl, uint32_t position)
++{
++	int result = avcodec_receive_frame(impl->codec, impl->frame);
++	if (result == 0)
++	{
++		const int appended = FAudio_FFMPEG_Append(audio, impl, impl->frame);
++		av_frame_unref(impl->frame);
++		if (!appended)
++		{
++			impl->failed = 1;
++			return 0;
++		}
++		FAudio_FFMPEG_Trim(impl, position);
++		return 1;
++	}
++	if (result == AVERROR_EOF)
++	{
++		impl->finished = 1;
++		return 0;
++	}
++	if (result != AVERROR(EAGAIN))
++	{
++		FAudio_FFMPEG_Report("FAudio: wmav2 decoding stopped (error %d); the rest plays as silence", result);
++		impl->finished = 1;
++		return 0;
++	}
++
++	/* The decoder wants input. */
++	if (impl->next_packet < impl->packet_count)
++	{
++		FAudio_memcpy(
++			impl->packet_data,
++			impl->source + ((size_t) impl->next_packet * impl->block_align),
++			impl->block_align
++		);
++		impl->packet->data = impl->packet_data;
++		impl->packet->size = (int) impl->block_align;
++		result = avcodec_send_packet(impl->codec, impl->packet);
++		if (result == AVERROR(EAGAIN))
++		{
++			/* Output must be read first; the packet is sent next time. */
++			return 1;
++		}
++		/* A corrupt packet is skipped; its samples come out short. */
++		impl->next_packet += 1;
++		return 1;
++	}
++	if (!impl->draining)
++	{
++		impl->draining = 1;
++		avcodec_send_packet(impl->codec, NULL);
++		return 1;
++	}
++	impl->finished = 1;
++	return 0;
++}
++
++void decode_wma(FAudioVoice *voice, struct queued_buffer *buffer, float *dst, uint32_t samples)
++{
++	struct FAudioWMADEC *impl = voice->src.wmadec;
++	const uint32_t channels = voice->src.format->nChannels;
++	const uint32_t start = voice->src.curBufferOffset;
++	const uint32_t end = start + samples;
++	uint32_t copied = 0;
++
++	LOG_FUNC_ENTER(voice->audio)
++
++	if (impl->failed || impl->codec == NULL)
++	{
++		FAudio_zero(dst, (size_t) samples * channels * sizeof(float));
++		LOG_FUNC_EXIT(voice->audio)
++		return;
++	}
++
++	/* A new buffer, or a loop back before the kept samples. */
++	if (	impl->source != buffer->buffer.pAudioData ||
++		impl->source_bytes != buffer->buffer.AudioBytes ||
++		start < impl->window_start	)
++	{
++		avcodec_flush_buffers(impl->codec);
++		FAudio_FFMPEG_ResetPosition(impl);
++		impl->source = buffer->buffer.pAudioData;
++		impl->source_bytes = buffer->buffer.AudioBytes;
++		impl->packet_count = buffer->buffer.AudioBytes / impl->block_align;
++	}
++
++	FAudio_FFMPEG_Trim(impl, start);
++	while (impl->window_end < end && !impl->finished)
++	{
++		if (!FAudio_FFMPEG_Step(voice->audio, impl, start))
++		{
++			break;
++		}
++	}
++
++	if (!impl->failed && impl->window_end > start)
++	{
++		copied = FAudio_min(impl->window_end, end) - start;
++		FAudio_memcpy(
++			dst,
++			impl->window + ((size_t) (start - impl->window_start) * channels),
++			(size_t) copied * channels * sizeof(float)
++		);
++	}
++	if (copied < samples)
++	{
++		FAudio_zero(
++			dst + ((size_t) copied * channels),
++			(size_t) (samples - copied) * channels * sizeof(float)
++		);
++	}
++
++	LOG_FUNC_EXIT(voice->audio)
++}
++
++#endif /* FAUDIO_FFMPEG_WMADEC */

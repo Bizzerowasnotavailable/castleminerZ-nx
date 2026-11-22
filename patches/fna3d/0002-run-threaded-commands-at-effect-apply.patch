@@ -1,0 +1,66 @@
+diff --git a/src/FNA3D_Driver_OpenGL.c b/src/FNA3D_Driver_OpenGL.c
+index b31eb1a..b417b74 100644
+--- a/src/FNA3D_Driver_OpenGL.c
++++ b/src/FNA3D_Driver_OpenGL.c
+@@ -1280,6 +1280,49 @@ static inline void ExecuteCommands(OpenGLRenderer *renderer)
+ 	SDL_UnlockMutex(renderer->commandsLock);
+ }
+ 
++/* Runs commands queued by other threads in the middle of a frame instead of
++ * leaving them for the next SwapBuffers. Each queued call blocks its thread
++ * until it runs, so games that create or fill buffers on worker threads were
++ * limited to one such call per thread per frame.
++ *
++ * Only call this between operations, never inside one. Queued uploads bind
++ * their texture on unit 0 and readbacks bind framebuffers; those bindings are
++ * put back so the frame in progress draws exactly as before. Buffer bindings
++ * need no restore: they are tracked and re-bound before every use.
++ */
++static inline void ExecuteCommandsMidFrame(OpenGLRenderer *renderer)
++{
++	OpenGLTexture *boundTexture;
++	GLuint readFramebuffer, drawFramebuffer;
++
++#ifdef USE_SDL3
++	if (SDL_GetAtomicPointer((void**) &renderer->commands) == NULL)
++#else
++	if (SDL_AtomicGetPtr((void**) &renderer->commands) == NULL)
++#endif
++	{
++		return;
++	}
++
++	boundTexture = renderer->textures[0];
++	readFramebuffer = renderer->currentReadFramebuffer;
++	drawFramebuffer = renderer->currentDrawFramebuffer;
++
++	ExecuteCommands(renderer);
++
++	if (renderer->textures[0] != boundTexture)
++	{
++		if (renderer->textures[0]->target != boundTexture->target)
++		{
++			renderer->glBindTexture(renderer->textures[0]->target, 0);
++		}
++		renderer->glBindTexture(boundTexture->target, boundTexture->handle);
++		renderer->textures[0] = boundTexture;
++	}
++	BindReadFramebuffer(renderer, readFramebuffer);
++	BindDrawFramebuffer(renderer, drawFramebuffer);
++}
++
+ static inline void DisposeResources(OpenGLRenderer *renderer)
+ {
+ 	OpenGLTexture *tex, *texNext;
+@@ -5148,6 +5191,11 @@ static void OPENGL_ApplyEffect(
+ 	const MOJOSHADER_effectTechnique *technique = fnaEffect->effect->current_technique;
+ 	uint32_t whatever;
+ 
++	/* Effect passes come before every draw, so threaded buffer and texture
++	 * work runs within a fraction of a frame instead of at SwapBuffers.
++	 */
++	ExecuteCommandsMidFrame(renderer);
++
+ 	renderer->effectApplied = 1;
+ 	if (effectData == renderer->currentEffect)
+ 	{

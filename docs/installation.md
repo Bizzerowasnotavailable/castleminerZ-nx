@@ -24,8 +24,11 @@ scripts and docs only.
 
 - Git, the Windows .NET 8 SDK, and Windows PowerShell.
 - devkitPro at `C:\devkitPro` (or pass `-DevkitPro`), with devkitA64, libnx,
-  CMake/Make, SDL2 and Mesa Switch portlibs. The tested packages and versions
-  are listed in [`dependencies.lock.json`](../dependencies.lock.json).
+  CMake/Make, SDL2, Mesa and FFmpeg Switch portlibs. Install FFmpeg (the game's
+  music decoder) from a devkitPro MSYS2 shell with `pacman -S switch-ffmpeg`;
+  the native build stops with that command if it is missing. The tested
+  packages and versions are listed in
+  [`dependencies.lock.json`](../dependencies.lock.json).
 - A working WSL Linux x64 distribution with `g++`, `binutils-aarch64-linux-gnu`,
   `bash`, and `tar`. WSL must already be installed and initialized.
 - `d3dx9_43.dll` and `D3DCompiler_43.dll` for the x64 .NET host, used to compile
@@ -128,27 +131,32 @@ No external `aot_config.ini` is required. The NRO embeds its defaults and create
 those defaults; inspect it for stale paths after moving installations.
 
 On Switch, launch through hbmenu in **full application mode** (hold R while
-starting an installed game), not album/applet mode. Physical Switch validation
-is still pending; playable Eden results do not establish hardware compatibility
-or working audio. See the [README limitations](../README.md#current-status).
+starting an installed game), not album/applet mode. The game boots on a
+physical Switch (owner reports); frame rate, audio and full gameplay are still
+being validated there, and playable Eden results do not establish them. See the
+[README limitations](../README.md#current-status).
 
 ## If the game fails to start
 
 - Run the verifier first. A changed NRO or package fails with a build mismatch;
   restore both from the same prepared build.
 - Check `switch/castleminerz-logs/aot_config.ini` for a stale override.
-- Keep `host.log` and `runtime.log` from `switch/castleminerz-logs/` with the
-  exact error.
+- Keep `host.log`, `runtime.log` and `perf.log` from
+  `switch/castleminerz-logs/` with the exact error. `host.log` and `perf.log`
+  are rewritten at each launch; `runtime.log` (Mono and console output) is
+  appended to, so it also holds earlier launches. A Mono startup error appears
+  at the end of `runtime.log`, after `host.log` stops at `mono_jit_init: begin`.
 - Prefer a short portable Eden path on Windows. An isolated test under a deeply
   nested temporary directory logged save-path `CreateDirs` errors. Path length is
   suspected, not confirmed. Back up saves before relocating an installation.
 
 ## Validation status
 
-The earlier layout (NRO plus separate managed files) was validated on the build
-PC in Eden, with `-DependenciesReady`. The embedded-assembly layout and the
-GOD-folder SD layout have not been built end to end yet. Physical Switch
-validation is pending for both.
+`prepare-game.ps1 -DependenciesReady` builds the current layout (processed
+assemblies embedded in the NRO, package in its GOD-style folder) end to end on
+the build PC. Its output passes `verify-game-install.ps1`, runs in Eden, and
+builds of this layout have booted on a physical Switch (owner reports, November
+2026). Preparation on a newly provisioned build PC has not been tested.
 
 ## Regression tests
 
