@@ -12,18 +12,19 @@ Build a playable Nintendo Switch port of CastleMiner Z using Xbox 360 GOD/STFS p
 
 ## Current Snapshot (November 2026)
 
-- **Status:** a locally prepared developer build is playable in Eden. It boots
-  and runs on a physical Switch (owner reports, November 21–22, 2026), but it is
-  GPU-bound at about 13–33 fps in the world. This is not a generic
-  NRO-plus-rip release. Gameplay validation on hardware is pending.
+- **Status:** 0.5.1 is fully playable on a physical Switch (owner hardware
+  testing, November 22, 2026). It runs smoothly and feels like 60 fps with
+  logging off, and inventory, combat and the rest of the core loop work. The
+  audio is still choppy (see "Open tasks" below). It is also playable in Eden.
+  This is not a generic NRO-plus-rip release.
 - **Build:** private ARM64 NRO produced by the full relink/AOT pipeline.
   - Confirmed booting on hardware: SHA-256
     `31E28CFA247CECC56CB78B2ED456885C1A2207B5D267360847F32F33C3AD43EF`.
   - First build with performance instrumentation:
     `1C122A1081A31C131BC952E24B1B123B3169AD33C25B676B0F575391AA3A3053`.
   - Current build, version 0.5.1 (perf-test-6, November 22):
-    `1BAC748C16DFEE0AC97FA6502D8551EEC79E130567168486F6781E71587708B9`. It has
-    not yet run on hardware.
+    `1BAC748C16DFEE0AC97FA6502D8551EEC79E130567168486F6781E71587708B9`.
+    Tested on hardware by the owner: fully playable.
 - **Verified:** title screen, offline world entry and save load, terrain,
   sky/clouds, water, HUD, hotbar icons, first-person held item, pause menu,
   movement/camera, mapped controller input, local-profile identity, and
@@ -36,15 +37,14 @@ Build a playable Nintendo Switch port of CastleMiner Z using Xbox 360 GOD/STFS p
   folder, and a SHA-256 manifest. It no longer
   assumes the user already has extracted/relinked files or this PC's Eden data.
 - **Open:**
-  - performance, which is GPU-bound (see the November 22 entry below and
-    `docs/performance.md`);
-  - choppy music on hardware: FFmpeg decodes the xWMA, but 480-sample audio
-    buffers starved, and 0.5.1's 1024-sample buffers still need a hardware run;
+  - choppy audio on hardware, which 0.5.1's 1024-sample buffers improved but did
+    not fix (task 1 under "Open tasks");
+  - FPS readout for SaltyNX-based tools such as the Status Monitor overlay
+    (task 2 under "Open tasks");
   - audio in Eden, because the emulator's audren renderer never consumes SDL
     buffers;
   - the invisible third-person avatar body;
-  - inventory, combat and full save-cycle validation;
-  - gameplay on hardware.
+  - a full power-cycle save/load test.
 
 ## Project Structure
 - **Primary Code**: `castleminerZ-nx/` - Main Switch port framework
@@ -126,8 +126,8 @@ Build a playable Nintendo Switch port of CastleMiner Z using Xbox 360 GOD/STFS p
 - [ ] Player body still invisible (no Xbox avatar assets; placeholder mesh rendering is future work)
 
 #### Gameplay Features
-- [ ] Inventory system testing
-- [ ] Combat system validation
+- [x] Inventory system testing (owner hardware test, 0.5.1)
+- [x] Combat system validation (owner hardware test, 0.5.1)
 - [ ] Audio system testing (XACT/FAudio integration). The PCM SFX bank is
       supported. The 11 xWMA streaming entries are decoded with FFmpeg's
       `wmav2` (`patches/faudio/0002`); a decoder of any kind fixed the hardware
@@ -137,8 +137,8 @@ Build a playable Nintendo Switch port of CastleMiner Z using Xbox 360 GOD/STFS p
 - [ ] Camera/recording for item placement
 
 #### Platform Integration
-- [ ] Hardware validation (physical Switch testing). It boots and runs, and
-      perf.log measurements exist; gameplay passes are pending.
+- [x] Hardware validation (physical Switch testing): 0.5.1 is fully playable
+      (owner hardware test). Audio is still choppy (open task 1).
 - [ ] Controller mapping validation on hardware
 - [ ] Profile selector and save/load on hardware
 
@@ -147,16 +147,46 @@ Build a playable Nintendo Switch port of CastleMiner Z using Xbox 360 GOD/STFS p
 ### ⏸️ BLOCKED (Stalled)
 
 #### Gameplay Features
-- Some gameplay features need validation
-- Full gameplay testing pending
+- Nothing blocked. A full power-cycle save/load test is still to do.
 
 #### Hardware Dependencies
-- No full gameplay pass on a physical Switch yet (it boots and runs)
-- Full playability claim not made
+- None. 0.5.1 is fully playable on the owner's Switch.
 
 ---
 
 ## Current Runtime State
+
+### Open tasks (requested November 22, 2026, after the 0.5.1 hardware test)
+
+**Workflow.** Build a test NRO and hand it to the owner. The owner tests it on
+the Switch. Push to GitHub only after the owner approves. Nothing from these
+tasks is pushed before that.
+
+1. **Fix choppy audio.** 0.5.1 made the game smooth, but the audio is still
+   choppy.
+   - **Evidence so far:** at 480 samples (perf-test-4/5), the mixer callback ran
+     about 85 times per second for a device that plays 100 buffers per second.
+     A producer that stays one buffer ahead runs at exactly the device rate. A
+     steady shortfall therefore means the device runs dry between buffers.
+   - **Likely causes:** the shortfall fits a refill that waits for the buffer
+     just queued to finish. SDL's Switch backend keeps only two buffers and
+     wakes on 5 ms audren frames. Larger buffers in 0.5.1 made the gaps rarer,
+     not gone. Also on the audio thread: occasional long callbacks (up to 12 ms)
+     from xWMA decoding and from FACT reading streaming data off the SD card.
+   - **Plan:** read the backend source to confirm, then keep more audio queued
+     than one buffer. Move decoding and SD reads off the critical path if they
+     still cause gaps. Measure with perf.log: callbacks should match the device
+     rate.
+2. **SaltyNX FPS support.** Make the game's frame rate readable by SaltyNX
+   tools, such as Status Monitor's FPS counter. NX-FPS normally provides it by
+   hooking a retail game's graphics calls, which does not apply to a homebrew
+   NRO with a statically linked Mesa.
+   - **Plan:** publish the frame rate from the host itself, in the
+     shared-memory format that NX-FPS uses and that Status Monitor reads, when
+     SaltyNX is running. Do nothing when SaltyNX is not running. The values come
+     from the present timing the perf monitor already measures.
+
+**Status:** in progress. Nothing has been built or pushed for these tasks yet.
 
 ### Hardware performance and 0.5.1 (November 22, 2026)
 
@@ -367,8 +397,9 @@ Build a playable Nintendo Switch port of CastleMiner Z using Xbox 360 GOD/STFS p
 ### Completion Criteria
 - [ ] Save/load survives full power cycle
 - [ ] Player is visible (not just placeholder)
-- [ ] All gameplay features (inventory, combat, audio) functional
-- [ ] Hardware validation completed
+- [ ] All gameplay features (inventory, combat, audio) functional. Inventory
+      and combat work on hardware; audio is still choppy.
+- [x] Hardware validation completed (0.5.1, owner test)
 - [ ] Frame rate stable at 720p/540p on retail hardware
 
 ---
