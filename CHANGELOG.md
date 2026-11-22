@@ -1,32 +1,80 @@
-# CHANGELOG
+# Changelog
+
+Source releases of castleminerZ-nx. There are no binary releases: the game NRO
+embeds code compiled from your own copy of CastleMiner Z, so every user builds
+it locally from their own package with `scripts/prepare-game.ps1` (see
+[`docs/installation.md`](docs/installation.md)). Measurements and reasoning are
+in [`JOURNEY.md`](JOURNEY.md) and [`docs/performance.md`](docs/performance.md).
 
 ## [0.5.1] - 2026-11-22
+
+Follow-up to the perf-test-4 and perf-test-5 hardware measurements. The build
+of this version (perf-test-6) is **not yet tested on hardware**.
+
+### Changed
+
+- **Render scale moved into FNA3D** (`patches/fna3d/0003-render-scale.patch`).
+  The host sets `CMZ_RENDER_SCALE=75`. FNA3D then renders into a 960×540 faux
+  backbuffer, scales viewports and scissor rectangles to match, and blits the
+  result up to the 1280×720 window. The game still sees a 1280×720 backbuffer,
+  so menus and the HUD keep their layout. perf-test-5 scaled the game-visible
+  backbuffer in FNA instead, which cropped the menus. That FNA patch was
+  dropped.
+- **1024-sample audio quantum** (`patches/fna/0005-audio-1024-quantum.patch`).
+  FNA creates FAudio with `FAUDIO_1024_QUANTUM`, so SDL opens the Switch audio
+  device with 1024-sample (21 ms) buffers instead of 480 (10 ms). With 480-sample
+  buffers, perf-test-5 ran about 85 mixer callbacks per second for a device that
+  needs 100, and the music was choppy.
+- The NRO reports version 0.5.1 to hbmenu. It reported 0.1.0 before.
+- `prepare-game.ps1 -Icon <image>` passes the image to `build-game.ps1`, which
+  embeds it as the 256×256 hbmenu icon.
+
 ### Added
-- **Logging Configuration**: Added `sdmc:/switch/castleminerz/config.ini` file to enable/disable host and performance logging. Default is enabled.
-- **Logging Toggle**: `cmz_perf_initialize` now accepts `bool enabled` parameter. Early-return logic added when disabled.
-- **Performance**: `cmz_perf_note` calls now skip when logging is disabled.
-- **Performance Monitor**: `cmz_perf_attach_runtime` now skips when disabled.
-- **Build Version**: Updated `APP_VERSION` to `0.5.1` in `scripts/build-game.ps1`.
-- **Performance Documentation**: Updated `docs/performance.md` to reflect:
-  - perf.log is on by default (toggleable via config.ini)
-  - GC nursery reduced from 16MB to 4MB (SGen default)
-  - Render scale 75% (960×540 internal) improves perf; game sees 1280×720
-  - Audio 1024 quantum passed to `FAudioCreate`, not `FAudio_CreateMasteringVoice`
-  - Logging toggle implementation documented
-- **JOURNEY.md**: Added Logging Configuration section documenting file location, format, impact, usage, and related changes.
 
-## [0.5.0] - 2026-11-21
-### Changed
-- Render scale 75% (960×540 internal) implemented via FNA3D, fixing menu crop issue.
-- Audio 1024 quantum patch applied to FNA (0005-audio-1024-quantum.patch).
-- FNA render scale patches applied and reverted to fix backbuffer/viewport scaling.
-- Perf-test-5 built and hardware-tested with 75% render scale, 480-sample audio.
-- Configuration file parsing logic implemented for logging toggle.
+- **Logging toggle.** A `sdmc:/switch/castleminerz/config.ini` containing
+  `logging = 0` turns off all logging: `host.log`, `perf.log` and its threads,
+  FNA3D call accounting, and mono-nx's unbuffered `runtime.log`. In that case
+  the host starts Mono with an embedded quiet runtime config and does not create
+  the log directory. Logging stays on if the file is missing or the value is
+  anything else. An `aot_config.ini` override in the log directory still takes
+  precedence.
 
-## [0.5.0] - 2026-10-28
-### Changed
-- Updated installation workflow with `scripts/prepare-game.ps1` and `scripts/verify-game-install.ps1`.
-- Added private build outputs and verification steps.
-- Added installation documentation and troubleshooting guides.
-- Added configuration file support for logging toggle.
-- Updated README and documentation to reflect private build boundaries and legal compliance.
+### Fixed
+
+- `build-native-dependencies.ps1` judges the CMake builds by their exit code,
+  so compiler warnings on stderr no longer abort it under Windows PowerShell.
+- `.gitattributes` keeps text files LF in the repository whichever Git client
+  commits them. `runtime-probe/native/main.cpp` had been committed with CRLF.
+
+### Notes
+
+- After changing anything under `patches/fna3d`, `patches/mojoshader` or
+  `patches/faudio`, rebuild the native libraries with
+  `build-native-dependencies.ps1`, or run `prepare-game.ps1` without
+  `-DependenciesReady`. Otherwise the NRO links the previous libraries. The
+  first perf-test-6 attempt would have linked a `libFNA3D.a` built before the
+  render-scale patch.
+- `build-runtime-probe.ps1` copies only part of the shared host sources and has
+  not been updated for the performance monitor. It cannot build the current
+  host. This does not affect the game build.
+
+## Before 0.5.1 (untagged)
+
+- **2026-11-22.** FAudio decodes the game's xWMA music and ambience with
+  FFmpeg's `wmav2` (devkitPro `switch-ffmpeg`, `patches/faudio/0002`), and
+  plays anything it cannot open as silence of the correct length. SDL's audio
+  thread runs at priority 0x2A. FNA3D runs queued off-thread calls at each
+  effect apply instead of only at present. SGen's nursery stays at its default
+  4 MB, because a 16 MB nursery aborted `mono_jit_init` on hardware. Hardware
+  test builds perf-test-2 through perf-test-5.
+- **2026-11-21.** GOD-folder SD layout, with the processed game assemblies
+  embedded in the NRO. Faster STFS reads. The game boots on the owner's Switch.
+  xWMA voices first played as silence (`patches/faudio/0001`), which fixed the
+  hardware crash when the title music started. Added the frame/GC/audio
+  performance log and the sampling profiler (perf-test-1).
+- **2026-10-28.** Project-authored replacement effects, local Switch profile
+  integration, and the first build that was playable in Eden. Package-to-SD
+  preparation (`prepare-game.ps1`) and installation verification
+  (`verify-game-install.ps1`), with installation and troubleshooting docs.
+- **2026-10-27.** Initial STFS package VFS, `cmztool`, XNA compatibility
+  assembly and managed relinker.

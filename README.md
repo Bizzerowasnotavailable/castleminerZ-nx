@@ -19,9 +19,10 @@ mapped Switch controller input all work. Assets are read directly from the
 user's STFS package and are never copied into the NRO or RomFS.
 
 **Installation is a local source build, not a generic NRO plus a game rip.**
-The NRO needs matching processed `CastleMinerZ.exe` and `DNA.Common.dll` metadata
-on SD. Use the [package preparation workflow](docs/installation.md) below to
-generate all three from your own package; do not download the DLL separately.
+The NRO embeds processed `CastleMinerZ.exe` and `DNA.Common.dll` that are
+generated from your own package and must match it. Use the
+[package preparation workflow](docs/installation.md) below to build both from
+your package. Do not download the DLLs separately.
 
 Verified in Eden:
 
@@ -53,12 +54,15 @@ Known limitations:
   the title music, but Eden's audren renderer never consumes SDL wave buffers (a
   standalone SDL tone gets one callback and then blocks), so nothing is audible
   there. SDL's audio thread runs at priority 0x2A, above the game's threads,
-  instead of SDL's lowest-priority default. Audio on hardware is being
-  validated; `perf.log` records the audio device and mixer output for that.
+  instead of SDL's lowest-priority default. On hardware the mixer produces
+  sound, but with 480-sample buffers it was called about 85 times a second for a
+  device that needs 100, and the music was choppy. 0.5.1 uses 1024-sample
+  buffers; that has not been tested on hardware yet.
 - **Validation:** inventory, combat, and a full power-cycle save/load test still
   need complete passes. On hardware the game boots and runs (owner reports), but
-  the frame rate is poor; hardware measurements are being collected with the
-  tools in [`docs/performance.md`](docs/performance.md).
+  the frame rate is poor: about 13–25 fps in the world at full resolution, and
+  about 17–33 fps with a 75% render scale. The game is GPU-bound. Measurements
+  and tools are in [`docs/performance.md`](docs/performance.md).
 - **Behavior note:** brief full-sky white flashes are the game's original
   lightning, not a rendering fault. Above ground the game flashes the sky white
   0–3 times, 0.1–0.35 s apart, every 10–39 s, followed by thunder. Each flash
@@ -79,8 +83,8 @@ The project also provides:
   MojoShader, plus FAudio with an FFmpeg xWMA decoder) linked into the Mono
   static-AOT image with no undefined symbols;
 - frame, GC and audio logging and an opt-in sampling profiler for hardware runs
-  ([`docs/performance.md`](docs/performance.md)); the logging toggle lives in
-  `sdmc:/switch/castleminerz/config.ini` (`logging=0` to disable);
+  ([`docs/performance.md`](docs/performance.md)). All logging can be switched
+  off with `logging = 0` in `sdmc:/switch/castleminerz/config.ini`;
 - ten project-authored replacement effects for the Xbox GPU binaries, with
   MojoShader GLSL ES 3 translation and interface tests;
 - Xbox cubemap and raw model-buffer byte-order fixes, verified in Eden; and
@@ -262,21 +266,23 @@ debugging. A boot without the override was verified in Eden **with the required
 package and processed assemblies still present**; this was not an empty-SD or
 package-only installation test.
 
-Host and performance logging can also be turned off without rebuilding the NRO by
-creating `sdmc:/switch/castleminerz/config.ini` on the SD card:
+Logging (`host.log`, `perf.log` and `runtime.log`) is on by default. To turn
+it off without rebuilding the NRO, create `sdmc:/switch/castleminerz/config.ini`:
 
 ```ini
 [logging]
-logging=0
+logging = 0
 ```
 
-- `logging=0` disables host log (`host.log`) and performance log (`perf.log`) creation and thread initialization.
-- Any other value (or no file) leaves logging on by default.
+With logging off, the NRO writes no logs and does not create the log directory.
+Any other value, or no file, leaves logging on. Details are in
+[`docs/performance.md`](docs/performance.md#logging-toggle).
 
-On hardware the NRO now runs with a **75% render scale** (960×540 internal
-buffer scaled by FNA3D to the 1280×720 display, fixing the menu crop) and a
-**1024-sample audio quantum** (passed to `FAudioCreate`, not the mastering voice
-call) that cuts mixer overhead. Version is **0.5.1**.
+Version **0.5.1** renders at a **75% scale**. FNA3D draws into a 960×540 buffer
+and scales it to the 1280×720 screen, while the game keeps its 1280×720 layout.
+It also uses **1024-sample audio buffers** against the choppy music. Both
+changes respond to hardware measurements of earlier builds. This build has not
+run on hardware yet; see the [changelog](CHANGELOG.md).
 
 On hardware, launch in **full application mode** (hold R while starting an
 installed game to open hbmenu), not from the album. The Mono runtime needs the

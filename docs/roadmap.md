@@ -90,10 +90,14 @@ XBLIG package.
 ## M4 — offline gameplay
 
 - [ ] Implement XACT global settings, sound banks, wave banks, and streaming.
-  PCM SFX banks are linked; the 11 xWMA streaming entries play as timed silence
-  (`patches/faudio`), which addresses the hardware crash (verified on the host
-  mixer; hardware retest pending). A decoder for real music is still open. Eden's audren renderer cannot play any SDL audio, so hardware
-  validation is required.
+  PCM SFX banks are linked. The 11 xWMA streaming entries are decoded with
+  FFmpeg's `wmav2` (`patches/faudio`), and anything FFmpeg cannot open plays as
+  silence of the correct length. The hardware crash when the title music
+  started went away once these voices had a decoder (silence at first, FFmpeg
+  now). The host mixer check plays every cue. On hardware the music
+  plays but was choppy with 480-sample buffers. 0.5.1 uses 1024-sample buffers,
+  which have not been tested on hardware yet. Eden's audren renderer cannot play
+  any SDL audio, so audio can only be validated on hardware.
 - [x] Map the selected local Switch profile's nickname, picture and UID-scoped
   storage onto the offline gamer APIs without requiring a Nintendo Account.
 - [ ] Validate profile selection and save/load on hardware; implement real

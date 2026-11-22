@@ -37,10 +37,27 @@ that only once per frame, in `SwapBuffers`; the port's FNA3D patch also runs
 them before every effect pass, so `offthread` time per call should stay well
 under a frame.
 
-### Render Scale & Audio Fixes
+### Render scale and audio buffer size (0.5.1)
 
-- **Render scale**: Set to **75%** (`CMZ_RENDER_SCALE=75`) via FNA3D so FNA3D's faux backbuffer scales the image up to 1280×720 while the internal framebuffer is 960×540. This cuts terrain fragment work nearly in half without changing display mode. Implemented by patch `patches/fna3d/0003-render-scale.patch` (added to live tree) and reverted on FNA with `patches/fna/0004-render-scale.patch`.
-- **Audio**: 1024-sample quantum passed to `FAudioCreate` (via `patches/fna/0005-audio-1024-quantum.patch`). SDL audio driver measured; mixer output recorded in `perf.log`.
+- **Render scale.** The host sets `CMZ_RENDER_SCALE=75`. With
+  `patches/fna3d/0003-render-scale.patch`, FNA3D's OpenGL driver allocates the
+  backbuffer at 75% (960×540) and scales viewports and scissor rectangles into
+  it. At present it blits the result to the 1280×720 window with linear
+  filtering. The game and FNA still see a 1280×720 backbuffer, so menus keep
+  their layout. This cuts fragment work by about 44% without changing the
+  display mode. FNA3D accepts values from 25 to 100 and ignores anything else.
+  Render targets are not scaled.
+
+  A backbuffer readback (`GetBackBufferData`) still requests the game's
+  1280×720 rectangle from the smaller buffer, so a screenshot taken that way
+  would be partly undefined. No such read happened in the logged sessions
+  (`readback=0`). perf-test-5 scaled the game-visible backbuffer in FNA
+  instead, which cropped the menus; that patch was dropped.
+- **Audio buffer size.** `patches/fna/0005-audio-1024-quantum.patch` creates
+  FAudio with `FAUDIO_1024_QUANTUM`, so SDL opens the device with 1024-sample
+  (21.3 ms) buffers instead of 480. The `# audio: device ... opened` header in
+  `perf.log` shows the size SDL actually granted. A device that keeps up runs
+  about 234 callbacks per 5-second interval at 1024 samples, or 500 at 480.
 
 Eden reports no thread CPU time, so `main_cpu` and `threads` read 0% there.
 
@@ -50,19 +67,31 @@ build if a wrapper lacks its compile-time signature check against `FNA3D.h`.
 
 ## Logging toggle
 
-Host and performance logging can be turned off without rebuilding the NRO by
-creating `sdmc:/switch/castleminerz/config.ini` on the SD card:
+All logging can be turned off without rebuilding the NRO. Create
+`sdmc:/switch/castleminerz/config.ini` on the SD card:
 
 ```ini
 [logging]
-logging=0
+logging = 0
 ```
 
-- `logging=0` disables host log creation (`host.log`) and the perf monitor
-  threads/initialization. Any other value (including an absent file) leaves
-  logging on by default.
-- When disabled, the host skips the log directory, host log file, perf monitor
-  initialization, and perf notes.
+The host reads only the `logging` key. The key is case-insensitive, spaces
+around `=` are optional, and the section name is not checked. A value starting
+with `0` turns logging off. A missing file, a missing key or any other value
+leaves it on.
+
+With logging off:
+
+- There is no `host.log` and no `perf.log`, and the reporter and sampler threads
+  do not start.
+- The FNA3D wrappers keep only the tick read before each call.
+- There is no `runtime.log`: the host starts Mono with the quiet RomFS config
+  (`romfs:/aot_config_quiet.ini`), which has no stdio redirect and turns
+  mono-nx diagnostics off.
+- The `castleminerz-logs` directory is not created.
+
+An `aot_config.ini` override in that directory still takes precedence over both
+embedded configs. Turn logging back on before collecting logs for a report.
 
 ## Sampling profiler (opt-in)
 
@@ -100,8 +129,44 @@ publish them.
 
 ## Findings so far
 
-See the November 21, 2026 entry in [`JOURNEY.md`](../JOURNEY.md). In short, for
-the title screen in Eden: the main thread waits for vsync most of the frame;
-worker threads issue hundreds of FNA3D calls per second that each wait up to a
-frame; loading triggers bursts of major collections with pauses up to 38 ms.
-Hardware measurements are still needed before changing behavior.
+**Eden, title screen (November 21).** The main thread waits for vsync most of
+the frame. Worker threads issue hundreds of FNA3D calls per second, and each
+waits up to a frame. Loading triggers bursts of major collections with pauses
+up to 38 ms. Eden does not model the Switch GPU, so its frame rates say little
+about hardware.
+
+**Hardware, owner's console (November 22; firmware 22.5.0, handheld).** The
+figures below are for in-world play after loading:
+
+| Build | Render scale | Frame time p50 | Load per frame | Main thread |
+| --- | --- | --- | --- | --- |
+| perf-test-4 | none | 34–83 ms; 68–83 ms at the heaviest load | 1.0–1.3 M primitives, 370–470 draws | waits in `clear` (22–56 ms); `main_cpu` 26–48% |
+| perf-test-5 | 75%, FNA (game sees 960×540) | 33–51 ms; 50–51 ms at the heaviest load | 1.1–1.4 M primitives, 390–490 draws | waits in `present_ms` (18–34 ms); `main_cpu` 34–53% |
+
+- **GPU-bound.** The main thread spends most of the frame waiting for a free
+  swap-chain buffer, not computing. Without a faux backbuffer that wait falls
+  in the frame's first `clear`. With one, the window framebuffer is first
+  touched by the present blit, so the same wait shows up in `present_ms`.
+  Draw, effect and state calls together cost 3–10 ms per frame.
+- **Resolution matters.** At comparable load, the 75% build cut the median
+  frame from 68–83 ms to about 50 ms. The two sessions did not show the same
+  view, so this is an estimate, not a controlled comparison.
+- **GC is not the problem in play.** After the first seconds in the world,
+  neither session had any collections. Loading and world entry had bursts, with
+  single pauses up to 6.7 ms.
+- **Audio was starved.** With 480-sample buffers the mixer ran 426–429
+  callbacks per 5 s, about 85 per second for a device that needs 100. Each
+  callback took about 0.3–0.5 ms on average, so the audio thread had CPU time to
+  spare but was not scheduled often enough. The owner reported choppy music.
+
+**Checks for perf-test-6 (0.5.1).**
+
+- The menus fill the screen.
+- The `# audio: device` line reports 1024 samples, with about 234 callbacks per
+  interval.
+- Compare the in-world frame time against the table at a similar primitive
+  count.
+- For a second run, set `logging = 0` and first delete
+  `switch/castleminerz-logs`. The game should boot without recreating the
+  folder. Existing logs are never deleted. With no log, this run can only be
+  judged by feel.

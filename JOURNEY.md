@@ -12,14 +12,18 @@ Build a playable Nintendo Switch port of CastleMiner Z using Xbox 360 GOD/STFS p
 
 ## Current Snapshot (November 2026)
 
-- **Status:** locally prepared developer build playable in Eden, and it boots on
-  a physical Switch (owner report, November 21, 2026). Not a generic
+- **Status:** a locally prepared developer build is playable in Eden. It boots
+  and runs on a physical Switch (owner reports, November 21–22, 2026), but it is
+  GPU-bound at about 13–33 fps in the world. This is not a generic
   NRO-plus-rip release. Gameplay validation on hardware is pending.
-- **Build:** private ARM64 NRO produced by the full relink/AOT pipeline. The
-  build confirmed booting on hardware has SHA-256
-  `31E28CFA247CECC56CB78B2ED456885C1A2207B5D267360847F32F33C3AD43EF`; the
-  first build with performance instrumentation has
-  `1C122A1081A31C131BC952E24B1B123B3169AD33C25B676B0F575391AA3A3053`.
+- **Build:** private ARM64 NRO produced by the full relink/AOT pipeline.
+  - Confirmed booting on hardware: SHA-256
+    `31E28CFA247CECC56CB78B2ED456885C1A2207B5D267360847F32F33C3AD43EF`.
+  - First build with performance instrumentation:
+    `1C122A1081A31C131BC952E24B1B123B3169AD33C25B676B0F575391AA3A3053`.
+  - Current build, version 0.5.1 (perf-test-6, November 22):
+    `1BAC748C16DFEE0AC97FA6502D8551EEC79E130567168486F6781E71587708B9`. It has
+    not yet run on hardware.
 - **Verified:** title screen, offline world entry and save load, terrain,
   sky/clouds, water, HUD, hotbar icons, first-person held item, pause menu,
   movement/camera, mapped controller input, local-profile identity, and
@@ -27,14 +31,20 @@ Build a playable Nintendo Switch port of CastleMiner Z using Xbox 360 GOD/STFS p
   world flow, but the package, processed managed files and saves remained
   present; this was not an empty-SD/package-only installation test.
 - **Preparation:** `scripts/prepare-game.ps1` accepts the user's supported
-  package and produces a complete private SD folder with a matching NRO,
-  processed EXE/DLL, unmodified package and SHA-256 manifest. It no longer
+  package and produces a complete private SD folder. It holds the matching NRO
+  (with the processed EXE/DLL embedded), the unmodified package in its GOD-style
+  folder, and a SHA-256 manifest. It no longer
   assumes the user already has extracted/relinked files or this PC's Eden data.
-- **Open:** performance (measurement tools are in place; see the November 21
-  entry and `docs/performance.md`), music and ambience (xWMA plays as silence
-  until a decoder exists), audio in Eden (the emulator's audren renderer never
-  consumes SDL buffers), invisible third-person avatar body,
-  inventory/combat/full save-cycle validation, and gameplay on hardware.
+- **Open:**
+  - performance, which is GPU-bound (see the November 22 entry below and
+    `docs/performance.md`);
+  - choppy music on hardware: FFmpeg decodes the xWMA, but 480-sample audio
+    buffers starved, and 0.5.1's 1024-sample buffers still need a hardware run;
+  - audio in Eden, because the emulator's audren renderer never consumes SDL
+    buffers;
+  - the invisible third-person avatar body;
+  - inventory, combat and full save-cycle validation;
+  - gameplay on hardware.
 
 ## Project Structure
 - **Primary Code**: `castleminerZ-nx/` - Main Switch port framework
@@ -102,7 +112,7 @@ Build a playable Nintendo Switch port of CastleMiner Z using Xbox 360 GOD/STFS p
 - [x] Deterministic private extraction/relink/AOT pipeline
 - [x] Package-to-install orchestration and portable complete SD output with
       build manifest; verifier catches missing DLLs, mixed builds and old packages
-- [x] Synthetic preparation/transfer/failure regression tests (17 checks)
+- [x] Synthetic preparation/transfer/failure regression tests (20 checks)
 
 ---
 
@@ -118,14 +128,17 @@ Build a playable Nintendo Switch port of CastleMiner Z using Xbox 360 GOD/STFS p
 #### Gameplay Features
 - [ ] Inventory system testing
 - [ ] Combat system validation
-- [ ] Audio system testing (XACT/FAudio integration) — PCM SFX bank supported;
-      the 11 xWMA streaming entries play as timed silence (`patches/faudio`),
-      which fixed the hardware boot crash; Eden's audren renderer blocks all SDL
-      playback; audible hardware validation pending
+- [ ] Audio system testing (XACT/FAudio integration). The PCM SFX bank is
+      supported. The 11 xWMA streaming entries are decoded with FFmpeg's
+      `wmav2` (`patches/faudio/0002`); a decoder of any kind fixed the hardware
+      crash. Eden's audren renderer blocks all SDL playback. On hardware the
+      music plays but was choppy with 480-sample buffers; 0.5.1's 1024-sample
+      buffers are untested.
 - [ ] Camera/recording for item placement
 
 #### Platform Integration
-- [ ] Hardware validation (physical Switch testing)
+- [ ] Hardware validation (physical Switch testing). It boots and runs, and
+      perf.log measurements exist; gameplay passes are pending.
 - [ ] Controller mapping validation on hardware
 - [ ] Profile selector and save/load on hardware
 
@@ -138,12 +151,63 @@ Build a playable Nintendo Switch port of CastleMiner Z using Xbox 360 GOD/STFS p
 - Full gameplay testing pending
 
 #### Hardware Dependencies
-- No physical Switch run completed
+- No full gameplay pass on a physical Switch yet (it boots and runs)
 - Full playability claim not made
 
 ---
 
 ## Current Runtime State
+
+### Hardware performance and 0.5.1 (November 22, 2026)
+
+- **Evidence:** `perf.log` from perf-test-4 and perf-test-5 on the owner's
+  console (firmware 22.5.0, handheld). The full table is in
+  `docs/performance.md`.
+  - perf-test-4, no render scale: 13–25 fps in the world, with a median frame
+    of 68–83 ms at 1.0–1.3 M primitives per frame. The main thread waited in
+    the frame's first `clear`, which holds the wait for a free swap-chain
+    buffer, and used only 26–48% CPU, so the game is GPU-bound.
+  - perf-test-5 scaled the game-visible backbuffer to 75% in FNA. It ran at
+    17–33 fps, with a median frame of about 50 ms at similar load. The wait
+    moved to `present_ms`, because a faux backbuffer first touches the window
+    framebuffer in the present blit. The menus were cropped (owner report),
+    because the game no longer saw a 1280×720 backbuffer.
+  - Audio in both builds: 426–429 mixer callbacks per 5 s with 480-sample
+    buffers, about 85 per second for a device that needs 100, at about 0.3–0.5 ms
+    each. The owner reported choppy music.
+  - No GC collections after world entry.
+- **0.5.1 changes (perf-test-6):**
+  - The render scale moved into FNA3D (`patches/fna3d/0003-render-scale.patch`,
+    `CMZ_RENDER_SCALE=75`). The game keeps a 1280×720 backbuffer, and FNA3D
+    renders at 960×540 and blits up. The FNA-level patch was dropped.
+  - FAudio is created with `FAUDIO_1024_QUANTUM`
+    (`patches/fna/0005-audio-1024-quantum.patch`).
+  - `config.ini` with `logging = 0` turns off all logging, including
+    `runtime.log` (see Logging Configuration below).
+  - The NACP version is 0.5.1, and an hbmenu icon can be set with `-Icon`.
+- **Found while building:** `-DependenciesReady` had kept a `libFNA3D.a` built
+  before the render-scale patch was applied, so the first build attempt would
+  have shipped without the scale. `build-native-dependencies.ps1` rebuilt it.
+  `docs/installation.md` now says to rebuild after native patch changes. The
+  same script now judges its CMake builds by exit code, like the NRO link.
+- **Verified on the build PC (not on hardware):**
+  - `libFNA3D.a`'s OpenGL driver object reads `CMZ_RENDER_SCALE`, and the
+    RomFS `FNA.dll` no longer contains the FNA-level scale.
+  - `FAudioContext.Create` passes `32768` (`FAUDIO_1024_QUANTUM`) to
+    `FAudioCreate`.
+  - RomFS holds `aot_config.ini` and `aot_config_quiet.ini`, and the NACP
+    reports 0.5.1.
+  - The `config.ini` parser passes ten host cases, including `logging = 0` with
+    spaces, which the first version of the parser ignored.
+  - `prepare-game.ps1` produced and verified `C:\CMZ-private\perf-test-6`.
+  - All six host regression scripts pass.
+- **Needed next (hardware):**
+  1. Run perf-test-6 with logging on. The menus should fill the screen, and the
+     `# audio: device` line should report 1024 samples with about 234 callbacks
+     per 5 s. Compare the in-world frame time at a similar primitive count, and
+     check whether the music is still choppy.
+  2. Delete `switch/castleminerz-logs`, then run again with `logging = 0`. It
+     should boot without recreating the folder.
 
 ### Hardware boot failure analysis (November 21, 2026)
 
@@ -255,8 +319,9 @@ Build a playable Nintendo Switch port of CastleMiner Z using Xbox 360 GOD/STFS p
 - **Profile**: Local Switch user selected (nickname, picture, UID storage)
 
 ### Build Outputs
-- **Game NRO**: `castleminerz.nro`, 97.5 MB in the local private build
-  (includes AOT code; never committed)
+- **Game NRO**: `castleminerz.nro`, about 115 MB in the 0.5.1 private build
+  (includes AOT code and the processed game assemblies; never committed or
+  published)
 - **Graphics Probe**: `castleminerz-graphics-probe.nro`, ~6.3 MB
 - **Runtime Probe**: `castleminerz-runtime-probe.nro`, ~81.8 MB
 - **AOT Code**: external `%LOCALAPPDATA%\Temp\opencode\castleminerz-deps\cmz-game-stage\native\aot\`
@@ -277,10 +342,12 @@ Build a playable Nintendo Switch port of CastleMiner Z using Xbox 360 GOD/STFS p
 ### Immediate Tasks
 0. **Installation Validation**: Exercise package preparation on a newly
    provisioned PC, verify the transferred manifest and launch on a second PC
-1. **Hardware Validation**: Run the current NRO on a physical Switch and confirm
-   rendering, input, audio, profile selection, and save/load
-2. **Audio System**: Choose a WMA policy (decoder, host-side transcode, or safe
-   silence), then validate PCM SFX and music on hardware
+1. **Hardware Validation**: Run perf-test-6 (0.5.1) on the Switch, using the
+   checks in the November 22 entry. Then confirm rendering, input, audio,
+   profile selection and save/load.
+2. **Audio System**: The WMA policy is settled: FFmpeg decodes it, and anything
+   it cannot open plays as silence. Confirm that 1024-sample buffers stop the
+   choppy music, and validate the PCM SFX on hardware.
 3. **Player Visibility**: Prototype a project-authored placeholder body driven by
    the fallback skeleton (no Xbox avatar assets)
 4. **Inventory System**: Complete inventory implementation and testing
@@ -289,10 +356,13 @@ Build a playable Nintendo Switch port of CastleMiner Z using Xbox 360 GOD/STFS p
    profile-isolated
 
 ### Platform Validation
-1. **Hardware Testing**: Run on physical Switch hardware
+1. **Hardware Testing**: Boots and runs on the owner's Switch. A full gameplay
+   pass is still to do.
 2. **Controller Validation**: Test all button mappings on hardware
 3. **Profile Testing**: Validate account selector and save/load
-4. **Performance**: Measure frame rates on retail hardware
+4. **Performance**: Measured on retail hardware (`perf.log`): the game is
+   GPU-bound. Next, compare 0.5.1's FNA3D render scale against the earlier
+   measurements.
 
 ### Completion Criteria
 - [ ] Save/load survives full power cycle
@@ -305,26 +375,34 @@ Build a playable Nintendo Switch port of CastleMiner Z using Xbox 360 GOD/STFS p
 
 ## Logging Configuration
 
-- **File Location**: `sdmc:/switch/castleminerz/config.ini` (new file)
-- **Format**: 
-  ```
+- **File:** `sdmc:/switch/castleminerz/config.ini`, which is optional:
+  ```ini
   [logging]
-  logging=0
+  logging = 0
   ```
-  - `logging=0` disables host log (`host.log`) and performance log (`perf.log`) creation and thread initialization.
-  - Any other value (including missing file) enables logging by default.
-- **Impact**: 
-  - When disabled: no `sdmc:/switch/castleminerz-logs` directory created, no host log file opened, `cmz_perf_initialize` called with `enabled=false`, and `cmz_perf_note` calls are skipped.
-  - When enabled (default): standard log directory creation, host log file opened, `cmz_perf_initialize` called with `enabled=true`, and all perf monitoring threads start normally.
-- **Usage**: 
-  - To disable logging (reduce CPU overhead): create `sdmc:/switch/castleminerz/config.ini` with `logging=0`.
-  - To enable logging (default): either omit the file or set `logging=1` (or any non-zero value).
-- **Related Changes**: 
-  - `main.cpp` added `logging_enabled()` helper function.
-  - `perf_monitor.h` updated `cmz_perf_initialize` signature to accept `bool enabled`.
-  - `perf_monitor.cpp` added `g_enabled` flag and early-return logic in `cmz_perf_initialize`, `cmz_perf_note`, and `cmz_perf_attach_runtime`.
-  - `build-game.ps1` updated `APP_VERSION` to `0.5.1`.
-- **Status**: Implemented and tested in local builds.
+  Only the `logging` key is read. It is case-insensitive, spaces around `=` are
+  optional, and the section is not checked. A value starting with `0` turns
+  logging off. A missing file, a missing key or any other value leaves it on.
+- **Off means:**
+  - no `host.log`;
+  - `cmz_perf_initialize(..., false)`, so no `perf.log`, no reporter or
+    sampler thread, no notes, no Mono profiler callbacks, and no FNA3D call
+    accounting beyond the tick read in each wrapper;
+  - no `runtime.log`;
+  - no `castleminerz-logs` directory.
+- **Why there is a second runtime config:** mono-nx's `application_initialize`
+  treats a `file_io_redirect` that cannot open its file as fatal ("Failed to
+  redirect stdio to file"). The romfs `aot_config.ini` redirects stdio,
+  unbuffered, to `castleminerz-logs/runtime.log`. So with logging off, the host
+  selects `romfs:/aot_config_quiet.ini`, which has no redirect and
+  `logging = false`. Only then does it skip the directory. An NRO without the
+  quiet config, such as the runtime probe, keeps the normal config and the
+  directory. An SD `aot_config.ini` override still takes precedence.
+- **Code:** `logging_enabled()` and the config choice in
+  `runtime-probe/native/main.cpp`, the `g_enabled` checks in `perf_monitor.cpp`,
+  and both configs written by `scripts/build-game.ps1`.
+- **Status:** built into perf-test-6 (0.5.1). The parser was tested on the host
+  with ten config variants. Not yet run on hardware with either setting.
 
 ## Technical Details
 
@@ -347,7 +425,9 @@ Build a playable Nintendo Switch port of CastleMiner Z using Xbox 360 GOD/STFS p
 - **Banks parsed**: `Sounds.xwb` contains 127 PCM entries;
   `SoundsStreaming.xwb` contains 11 WMA entries (format tag 3).
 - **Switch FAudio**: the linked FAudio build has no `HAVE_WMADEC`, so the
-  streaming music cannot be decoded as-is.
+  streaming music cannot be decoded as-is. *Update, November 2026:*
+  `patches/faudio/0002` decodes it with FFmpeg's `wmav2` (see
+  `docs/toolchain.md`).
 - **Eden blocker**: SDL opens the `switch` audio driver at 48 kHz stereo S16,
   but the emulator's audren renderer never transitions the wave buffer from
   `Queued` to `Playing`. `SWITCHAUDIO_PlayDevice` then spins in
@@ -367,6 +447,7 @@ Environment Variables:
 - FNA3D_OPENGL_FORCE_ES3=1
 - CMZ_REPLACEMENT_EFFECT_DIRECTORY=romfs:/effects
 - CMZ_FIRST_ENVIRONMENT_SLICE_ONLY=1
+- CMZ_RENDER_SCALE=75   (read by the patched FNA3D, 0.5.1)
 ```
 
 ---
@@ -380,9 +461,11 @@ Environment Variables:
 - **Limitations**: Emulator does not model Switch memory limits or applet constraints
 
 ### Physical Hardware Target
-- **Status**: Pending hardware testing
+- **Status**: boots and runs on the owner's console (firmware 22.5.0). It runs
+  at 13–25 fps in the world at full resolution and 17–33 fps with a 75% scale.
 - **Focus**: Frame rate optimization, memory usage, input responsiveness
-- **Risk**: switch-mesa CPU-heavy for state changes
+- **Risk**: the game is GPU-bound, not CPU-bound (the main thread waits for the
+  GPU and uses 26–53% CPU), so rendering cost decides the frame rate
 
 ---
 
@@ -462,15 +545,21 @@ Each gate defines concrete pass/fail conditions:
   correct. The local profile supplies nickname/picture metadata only; Mii
   geometry is not read or rendered.
 - **Audio in Eden**: Eden's audren renderer never consumes SDL wave buffers, so
-  no SDL-based game can produce sound in the emulator. PCM SFX are supported by
-  the linked FAudio build; the 11 streaming WMA entries are not.
-- **Hardware Testing**: No physical Switch validation completed.
+  no SDL-based game can produce sound in the emulator. The linked FAudio build
+  plays the PCM SFX and decodes the 11 streaming WMA entries with FFmpeg.
+- **Hardware Testing**: boots and runs, and perf.log measurements exist. Music
+  was choppy with 480-sample buffers. Full gameplay validation has not been
+  done.
+- **Runtime probe build**: `build-runtime-probe.ps1` copies only part of the
+  shared host sources and predates the performance monitor, so it cannot build
+  the current host. The game build is unaffected.
 - **Eden Host Stability**: one host-side `ucrtbase.dll` crash
   (`0xc0000409`) occurred after an extended session that had rendered normally;
   it is not reproduced reliably and is treated as an emulator issue until
   isolated.
-- **Performance**: switch-mesa CPU overhead may limit frame rate on retail
-  hardware; Eden measurements are not representative.
+- **Performance**: GPU-bound on retail hardware, at 13–33 fps in the world
+  depending on scene and render scale. Eden measurements are not
+  representative.
 - **Lightning Flashes**: brief full-sky white flashes are the game's original
   `drawLightning` storm behavior (10–40 s cadence above ground), not a corrupted
   skybox.
@@ -480,7 +569,7 @@ Each gate defines concrete pass/fail conditions:
 - Full multiplayer networking (single-player focus)
 - Complete graphics/effect parity validation
 - Inventory, combat, and full power-cycle save/load validation
-- WMA streaming music policy and hardware audio validation
+- Hardware audio validation (the WMA music policy is settled: FFmpeg decoding)
 
 ---
 
@@ -490,10 +579,13 @@ Z on Nintendo Switch using static-AOT Mono and FNA. In Eden the game boots to th
 title screen, loads an offline world, and renders terrain, sky, water, HUD,
 hotbar icons, and the first-person held item correctly; movement, camera, pause
 menu, mapped controller input, local-profile identity, and UID-scoped saves work.
-The main remaining challenges are audio (emulator and WMA limits), the invisible
-third-person avatar body, and validation on physical hardware.
+On a physical Switch it boots and runs. There it is GPU-bound at a low frame
+rate, and the music was choppy. The main remaining challenges are frame rate
+and audio on hardware, the invisible third-person avatar body, and full
+gameplay validation on hardware.
 
-**Status**: Playable in Eden with correct rendering; physical-hardware validation
-pending.
-**Next Focus**: Hardware validation, audio policy, and a project-authored avatar
-body.
+**Status**: Playable in Eden with correct rendering. It boots and runs on
+hardware at 13–33 fps. 0.5.1 (FNA3D render scale and 1024-sample audio) awaits
+its hardware run.
+**Next Focus**: the perf-test-6 hardware run, frame rate, audio on hardware,
+and a project-authored avatar body.

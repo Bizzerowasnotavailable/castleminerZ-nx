@@ -104,8 +104,8 @@ work; producing these archives alone does not make the game playable.
 
 ### FAudio xWMA and XMA2
 
-No FAudio backend decodes xWMA or XMA2 on Switch, and the game's streaming wave
-bank is xWMA. Without `HAVE_WMADEC`, upstream `FAudio_CreateSourceVoice` leaves
+Upstream FAudio has no xWMA or XMA2 decoder for Switch, and the game's streaming
+wave bank is xWMA. Without `HAVE_WMADEC`, upstream `FAudio_CreateSourceVoice` leaves
 those voices without a decode function (its assert compiles out in Release), and
 `FAudio_INTERNAL_DecodeBuffers` calls that null pointer on the SDL audio thread.
 That is an instruction abort at PC 0 on hardware; Eden never reaches it because
@@ -118,7 +118,15 @@ Buffer lengths still come from the xWMA packet table or the XMA2 sample count,
 so cues keep their real length, loop and end normally. The first such voice logs
 `FAudio: format 0x... has no decoder in this build; it plays as silence` through
 SDL, which the runtime host writes to `host.log`.
-`build-native-dependencies.ps1` applies the patch and enables the option.
+
+`patches/faudio/0002-ffmpeg-wma-decoding.patch` adds the `FFMPEG_WMA_DECODING`
+option and `src/FAudio_ffmpeg_wmadec.c`. This backend decodes xWMA with
+libavcodec's `wmav2` from devkitPro's `switch-ffmpeg` port. A voice that
+libavcodec cannot open or decode plays as silence of the correct length, and
+the reason is logged through SDL. Other formats, including XMA2, also play as
+silence. `build-native-dependencies.ps1` applies both patches and builds with
+`FFMPEG_WMA_DECODING=ON` and `SILENT_WMA_DECODING=OFF`. The silent backend is
+the decoder-free fallback.
 
 Check the audio path with a live mixer on the host:
 
@@ -339,26 +347,38 @@ copy the original package; prefer `prepare-game.ps1` for installation.
 
 Close Eden before replacing the NRO: Windows keeps the running image open.
 If only the final copy fails, the completed NRO remains in the external
-`cmz-game-stage/native/aot/` directory. Its matching trimmed game assemblies are
-under `output/`; deploy both together after stopping the emulator.
+`cmz-game-stage/native/aot/` directory. It already contains the matching
+trimmed game assemblies.
 
-The script relinks, trims and AOT-compiles the private assemblies. It keeps their
-matching trimmed IL on the SD card under `switch/castleminerz/managed/`; neither
-game assembly goes into RomFS. The host preloads `DNA.Common.dll` from that same
-directory before opening the executable because Mono resolves static-AOT
-dependencies before establishing the entry assembly's base directory.
+The script relinks, trims and AOT-compiles the private assemblies. It embeds
+their matching trimmed IL in the NRO's RomFS under `managed/`. The host preloads
+`romfs:/managed/DNA.Common.dll` before opening the executable, because Mono
+resolves static-AOT dependencies before establishing the entry assembly's base
+directory.
 
-RomFS contains the runtime/framework, compatibility assembly and project-authored
-replacement FXBs, never extracted game content. The NRO contains private generated
-game AOT machine code and is ignored, not a redistributable source-project build.
-Never commit it, the extracted inputs, the AOT objects, or shader caches.
+RomFS contains:
+
+- the runtime and framework;
+- the compatibility assembly;
+- the processed game assemblies;
+- the project-authored replacement FXBs;
+- two mono-nx configs: `aot_config.ini`, and `aot_config_quiet.ini` for when
+  logging is off.
+
+It contains no game art or audio. The NRO contains private generated game AOT
+machine code and the processed game assemblies, so it is ignored by Git and is
+not a redistributable source-project build. Never commit or publish it, the
+extracted inputs, the AOT objects, or shader caches.
 
 The corlib AOT step reserves 16,384 generic trampolines; 4,096 was exhausted during
 game startup. All game AOT assembly and native linking outputs remain external.
 The native host writes `host.log`, and the default config redirects runtime output
 to `runtime.log`, under `sdmc:/switch/castleminerz-logs/`. An SD `aot_config.ini`
 there overrides the embedded configuration. File diagnostics are unbuffered so
-native crashes do not hide the last messages.
+native crashes do not hide the last messages. `logging = 0` in
+`sdmc:/switch/castleminerz/config.ini` selects the quiet config and turns off
+`host.log`, `perf.log` and `runtime.log` (see
+[`performance.md`](performance.md#logging-toggle)).
 
 Local-profile behavior and tests are documented in
 [`local-profiles.md`](local-profiles.md). Neither the native host nor managed

@@ -23,7 +23,7 @@ without a Switch. It assumes the graphics decision in
 | First-person held items | correct lower-right placement verified in Eden using the game's fallback avatar skeleton |
 | Xbox custom effects | ten project-authored replacements compile and pass MojoShader/interface checks |
 | Xbox texture/model byte order | corrected sky, hotbar icons and held models verified in Eden; synthetic reader tests pass |
-| Audio (XACT/FAudio) | PCM SFX path linked; 11 xWMA streaming entries play as timed silence (`patches/faudio`); Eden audren blocks all SDL playback; host mixer check passes; hardware validation pending |
+| Audio (XACT/FAudio) | PCM SFX linked; the 11 xWMA streaming entries are decoded with FFmpeg `wmav2` (`patches/faudio`); the host mixer check plays every cue; Eden audren blocks all SDL playback; on hardware the mixer produces sound, but 480-sample buffers starved and the music was choppy; 1024-sample buffers (0.5.1) not yet tested on hardware |
 | Local profile integration | selected local user and UID-scoped storage verified in Eden; synthetic facade tests pass; hardware validation pending |
 
 The native graphics stack and package filesystem work in Eden. The reported
@@ -36,7 +36,8 @@ held models in Eden. First-person held items are now placed correctly because
 `AvatarRenderer` reports `Unavailable`, which selects the game's own fallback
 bind pose instead of a placeholder rig; the third-person player body is still
 invisible. Inventory, entities, combat, audio, and a full save/load cycle still
-need complete checks. No physical Switch run or full-playability claim is made.
+need complete checks. On a physical Switch the game boots and runs (owner
+reports), at a poor frame rate; no full-playability claim is made.
 
 Native EGL errors can mask an original managed error when the game's error
 screen creates a second graphics device. Diagnostic hooks log the original
@@ -238,7 +239,11 @@ Exit criterion: a save survives a full power cycle, and the player is visible.
 
 switch-mesa's tegra Gallium driver is the frame-rate risk, not the CPU.
 
-1. Measure with the game's own frame counter at 1280x720 and 960x540.
+1. Measure with the game's own frame counter at 1280x720 and 960x540. Done on
+   hardware with `perf.log`: the game is GPU-bound. At comparable load, 960×540
+   cut the median in-world frame from 68–83 ms to about 50 ms (see
+   [`performance.md`](performance.md#findings-so-far)). 0.5.1 renders at 75%
+   inside FNA3D, so the game keeps its 1280×720 layout.
 2. Reduce Mesa state changes: `SpriteBatch` batching, avoid render-target
    ping-pong where the game allows it, keep effect permutations minimal.
 3. Tune mono-nx (GC nursery, `config.ini`) and the AOT set.

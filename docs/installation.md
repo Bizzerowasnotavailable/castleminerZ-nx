@@ -58,6 +58,10 @@ If local script policy blocks this command, invoke it with
 `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\prepare-game.ps1`
 and the same arguments. No machine-wide policy change is needed.
 
+`-Icon 'C:\path\to\image.png'` sets the hbmenu icon. The image may be in any
+format that Windows can read, and it is converted to the 256×256 JPEG that the
+NRO needs. Without `-Icon`, hbmenu shows libnx's default icon.
+
 `OutputRoot` must be a **new directory outside the source repository**. It is
 an output folder, not your live Eden SDMC directory or SD card. Without an
 explicit output path the default is
@@ -87,6 +91,13 @@ the same dependency workspace, because the build uses a shared
 On an already prepared build PC, `-DependenciesReady` skips dependency fetching
 and native-library rebuilds. It **does not** skip relinking, trimming or AOT:
 the NRO must always be produced from the matching package.
+
+Because it skips the native rebuild, run `./scripts/build-native-dependencies.ps1`
+first after any change under `patches/fna3d`, `patches/mojoshader` or
+`patches/faudio`, or after pulling such a change. Otherwise the NRO links the
+previous `libFNA3D.a`/`libFAudio.a` without telling you. FNA and mono-nx
+patches do not need this, because the game build applies and rebuilds those
+itself.
 
 ## Transfer to Eden or Switch
 
@@ -130,6 +141,10 @@ No external `aot_config.ini` is required. The NRO embeds its defaults and create
 `switch/castleminerz-logs/`. A pre-existing config in that directory overrides
 those defaults; inspect it for stale paths after moving installations.
 
+Logging is on by default. `logging = 0` in `switch/castleminerz/config.ini`
+turns it off; the NRO then writes no logs and does not create the log
+directory. See [`performance.md`](performance.md#logging-toggle).
+
 On Switch, launch through hbmenu in **full application mode** (hold R while
 starting an installed game), not album/applet mode. The game boots on a
 physical Switch (owner reports); frame rate, audio and full gameplay are still
@@ -141,6 +156,8 @@ being validated there, and playable Eden results do not establish them. See the
 - Run the verifier first. A changed NRO or package fails with a build mismatch;
   restore both from the same prepared build.
 - Check `switch/castleminerz-logs/aot_config.ini` for a stale override.
+- If there are no logs, check `switch/castleminerz/config.ini` for
+  `logging = 0`, and remove it before reproducing the problem.
 - Keep `host.log`, `runtime.log` and `perf.log` from
   `switch/castleminerz-logs/` with the exact error. `host.log` and `perf.log`
   are rewritten at each launch; `runtime.log` (Mono and console output) is
