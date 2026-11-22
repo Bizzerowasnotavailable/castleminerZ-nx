@@ -47,9 +47,9 @@ Windows with WSL, the .NET 8 SDK and devkitPro. The full prerequisites are in
 ```
 
 Pass the `LIVE`/STFS file itself, which often has a long hexadecimal name and no
-extension. Add `-Icon 'C:\path\to\image.png'` to give the game an hbmenu icon.
-The script validates the package, builds the game and writes a new private SD
-folder:
+extension. The hbmenu icon is the game's own icon, taken from your package. To
+use a different image, add `-Icon 'C:\path\to\image.png'`. The script validates
+the package, builds the game and writes a new private SD folder:
 
 ```text
 sd-ready/

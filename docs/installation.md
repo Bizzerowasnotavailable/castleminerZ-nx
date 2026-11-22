@@ -58,9 +58,12 @@ If local script policy blocks this command, invoke it with
 `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\prepare-game.ps1`
 and the same arguments. No machine-wide policy change is needed.
 
-`-Icon 'C:\path\to\image.png'` sets the hbmenu icon. The image may be in any
-format that Windows can read, and it is converted to the 256×256 JPEG that the
-NRO needs. Without `-Icon`, hbmenu shows libnx's default icon.
+The hbmenu icon is the game's own icon, which the script reads from your
+package's header. No icon ships with this repository, because it is game art.
+The header image is 64×64, so it is scaled up to the 256×256 JPEG that the NRO
+needs. To use a different image, add `-Icon 'C:\path\to\image.png'`. It may be
+in any format that Windows can read. If the header has no usable image and
+`-Icon` is not given, the script warns and hbmenu shows libnx's default icon.
 
 `OutputRoot` must be a **new directory outside the source repository**. It is
 an output folder, not your live Eden SDMC directory or SD card. Without an

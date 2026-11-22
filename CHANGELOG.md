@@ -6,6 +6,18 @@ it locally from their own package with `scripts/prepare-game.ps1` (see
 [`docs/installation.md`](docs/installation.md)). Measurements and reasoning are
 in [`JOURNEY.md`](JOURNEY.md) and [`docs/performance.md`](docs/performance.md).
 
+## [Unreleased]
+
+### Changed
+
+- **hbmenu icon by default.** `prepare-game.ps1` now reads the game's icon from
+  your package header and embeds it, so `-Icon` is no longer needed. The
+  repository still ships no game art. `-Icon` still works and overrides the
+  package icon. If the header has no usable image, the script warns and hbmenu
+  shows its default icon.
+- The icon is scaled to 256×256 with high-quality bicubic filtering and saved
+  as a quality-95 JPEG, so the small header image stays smooth.
+
 ## [0.5.2] - 2026-11-22
 
 Tested on the owner's Switch as perf-test-7, and all checks passed (owner

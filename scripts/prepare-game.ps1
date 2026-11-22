@@ -151,6 +151,65 @@ function Get-GodFolderPath {
 }
 $godRelative = Get-GodFolderPath $Package
 
+# The hbmenu icon defaults to the game's own icon from the user's package
+# header, so no game art has to ship with the source. STFS metadata holds a
+# thumbnail PNG at 0x171A and a title thumbnail PNG at 0x571A, each in a
+# 0x4000-byte slot, with big-endian sizes at 0x1712 and 0x1716. build-game.ps1
+# scales the image to the 256x256 JPEG that elf2nro needs. An explicit -Icon
+# overrides this; without either, hbmenu shows libnx's default icon.
+function Export-PackageIcon {
+    param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][string]$Destination)
+    $header = [byte[]]::new(0x571A + 0x4000)
+    $stream = [IO.File]::OpenRead($Path)
+    try {
+        $read = 0
+        while ($read -lt $header.Length) {
+            $count = $stream.Read($header, $read, $header.Length - $read)
+            if ($count -le 0) { break }
+            $read += $count
+        }
+    } finally {
+        $stream.Dispose()
+    }
+    $png = [byte[]](0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A)
+    foreach ($slot in @(@{ Size = 0x1712; Data = 0x171A }, @{ Size = 0x1716; Data = 0x571A })) {
+        $size = ([int64]$header[$slot.Size] -shl 24) -bor ([int64]$header[$slot.Size + 1] -shl 16) -bor
+            ([int64]$header[$slot.Size + 2] -shl 8) -bor [int64]$header[$slot.Size + 3]
+        if ($size -le $png.Length -or $size -gt 0x4000 -or $slot.Data + $size -gt $read) { continue }
+        $match = $true
+        for ($i = 0; $i -lt $png.Length; $i++) {
+            if ($header[$slot.Data + $i] -ne $png[$i]) { $match = $false; break }
+        }
+        if (-not $match) { continue }
+        $bytes = [byte[]]::new($size)
+        [Array]::Copy($header, $slot.Data, $bytes, 0, $size)
+        # Decode it once here, so a damaged thumbnail is skipped instead of
+        # failing the build later.
+        Add-Type -AssemblyName System.Drawing
+        $memory = [IO.MemoryStream]::new($bytes)
+        try {
+            $image = [System.Drawing.Image]::FromStream($memory)
+            $image.Dispose()
+        } catch {
+            continue
+        } finally {
+            $memory.Dispose()
+        }
+        [IO.File]::WriteAllBytes($Destination, $bytes)
+        return $true
+    }
+    return $false
+}
+if ([string]::IsNullOrWhiteSpace($Icon)) {
+    $packageIcon = Join-Path $run 'package-icon.png'
+    if (Export-PackageIcon -Path $Package -Destination $packageIcon) {
+        $Icon = $packageIcon
+        Write-Host 'Using the icon from the package header as the hbmenu icon.'
+    } else {
+        Write-Warning 'The package header has no usable icon; hbmenu will show its default icon. Pass -Icon to choose one.'
+    }
+}
+
 & (Join-Path $PSScriptRoot 'build-game.ps1') -ManagedSource $originals `
     -Workspace $Workspace -DevkitPro $DevkitPro -OutputDirectory $buildOutput -Icon $Icon
 

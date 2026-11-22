@@ -123,10 +123,39 @@ if (-not [string]::IsNullOrWhiteSpace($Icon)) {
     Add-Type -AssemblyName System.Drawing
     $iconImage = [System.Drawing.Image]::FromFile($iconPath)
     try {
-        $iconBitmap = [System.Drawing.Bitmap]::new($iconImage, 256, 256)
+        # High-quality bicubic keeps the small package thumbnail (64x64) smooth
+        # when it is scaled up. Any transparency becomes black in the JPEG.
+        $iconBitmap = [System.Drawing.Bitmap]::new(256, 256)
         try {
-            $iconBitmap.Save((Join-Path $stageAot 'icon.jpg'),
-                [System.Drawing.Imaging.ImageFormat]::Jpeg)
+            $graphics = [System.Drawing.Graphics]::FromImage($iconBitmap)
+            try {
+                $graphics.Clear([System.Drawing.Color]::Black)
+                $graphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+                $graphics.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
+                $graphics.CompositingQuality = [System.Drawing.Drawing2D.CompositingQuality]::HighQuality
+                $attributes = [System.Drawing.Imaging.ImageAttributes]::new()
+                try {
+                    $attributes.SetWrapMode([System.Drawing.Drawing2D.WrapMode]::TileFlipXY)
+                    $graphics.DrawImage($iconImage, [System.Drawing.Rectangle]::new(0, 0, 256, 256),
+                        0, 0, $iconImage.Width, $iconImage.Height,
+                        [System.Drawing.GraphicsUnit]::Pixel, $attributes)
+                } finally {
+                    $attributes.Dispose()
+                }
+            } finally {
+                $graphics.Dispose()
+            }
+            $jpeg = [System.Drawing.Imaging.ImageCodecInfo]::GetImageEncoders() |
+                Where-Object { $_.FormatID -eq [System.Drawing.Imaging.ImageFormat]::Jpeg.Guid } |
+                Select-Object -First 1
+            $encoderParameters = [System.Drawing.Imaging.EncoderParameters]::new(1)
+            try {
+                $encoderParameters.Param[0] = [System.Drawing.Imaging.EncoderParameter]::new(
+                    [System.Drawing.Imaging.Encoder]::Quality, [int64]95)
+                $iconBitmap.Save((Join-Path $stageAot 'icon.jpg'), $jpeg, $encoderParameters)
+            } finally {
+                $encoderParameters.Dispose()
+            }
         } finally {
             $iconBitmap.Dispose()
         }

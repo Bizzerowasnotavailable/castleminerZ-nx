@@ -39,7 +39,9 @@ $global:LASTEXITCODE = 0
 # The mock build embeds the processed assemblies in the NRO, so the SD card
 # gets only the NRO and the package.
 @'
-param($ManagedSource, $Workspace, $DevkitPro, $OutputDirectory)
+param($ManagedSource, $Workspace, $DevkitPro, $OutputDirectory, $Icon)
+$received = if ([string]::IsNullOrWhiteSpace($Icon)) { 'none' } else { [Convert]::ToBase64String([IO.File]::ReadAllBytes($Icon)) }
+[IO.File]::WriteAllText((Join-Path $Workspace 'icon-received'), $received)
 foreach ($name in @('CastleMinerZ.exe', 'DNA.Common.dll')) {
     if ((Get-Content -LiteralPath (Join-Path $ManagedSource $name) -Raw) -cne "original:584E07D1/$name") {
         throw "The build did not receive the original package assembly: $name"
@@ -154,6 +156,48 @@ $script:checks++
 Remove-Item -LiteralPath $staleManaged -Recurse
 & $verify -SdRoot $transferred
 $script:checks++
+
+# The hbmenu icon: none without a thumbnail, otherwise the package's thumbnail
+# PNG, and an explicit -Icon always wins.
+$iconReceived = Join-Path $deps 'icon-received'
+if ([IO.File]::ReadAllText($iconReceived) -cne 'none') { throw 'A package without a thumbnail produced an icon.' }
+$script:checks++
+Add-Type -AssemblyName System.Drawing
+function New-PngBytes {
+    param([System.Drawing.Color]$Color)
+    $bitmap = [System.Drawing.Bitmap]::new(64, 64)
+    try {
+        for ($x = 0; $x -lt 64; $x++) { for ($y = 0; $y -lt 64; $y++) { $bitmap.SetPixel($x, $y, $Color) } }
+        $memory = [IO.MemoryStream]::new()
+        try {
+            $bitmap.Save($memory, [System.Drawing.Imaging.ImageFormat]::Png)
+            return , $memory.ToArray()
+        } finally { $memory.Dispose() }
+    } finally { $bitmap.Dispose() }
+}
+$thumbnail = New-PngBytes ([System.Drawing.Color]::Red)
+$iconHeader = [byte[]]::new(0x971A)
+[Array]::Copy($header, $iconHeader, $header.Length)
+$size = $thumbnail.Length
+$sizeBytes = [byte[]](
+    (($size -shr 24) -band 0xFF), (($size -shr 16) -band 0xFF), (($size -shr 8) -band 0xFF), ($size -band 0xFF))
+[Array]::Copy($sizeBytes, 0, $iconHeader, 0x1712, 4)
+[Array]::Copy($thumbnail, 0, $iconHeader, 0x171A, $size)
+[IO.File]::WriteAllBytes($package, $iconHeader)
+$iconOutput = Join-Path $test 'prepared sd with icon'
+& $prepare @arguments -OutputRoot $iconOutput
+if ([IO.File]::ReadAllText($iconReceived) -cne [Convert]::ToBase64String($thumbnail)) {
+    throw 'The build did not receive the package thumbnail as its icon.'
+}
+$script:checks++
+$override = Join-Path $test 'my icon.png'
+[IO.File]::WriteAllBytes($override, (New-PngBytes ([System.Drawing.Color]::Blue)))
+& $prepare @arguments -OutputRoot (Join-Path $test 'prepared sd with override') -Icon $override
+if ([IO.File]::ReadAllText($iconReceived) -cne [Convert]::ToBase64String([IO.File]::ReadAllBytes($override))) {
+    throw 'An explicit -Icon did not override the package thumbnail.'
+}
+$script:checks++
+[IO.File]::WriteAllBytes($package, $header)
 
 [IO.File]::WriteAllText($package, 'unsupported package')
 Assert-Fails { & $prepare @arguments -OutputRoot $output } 'cmztool verify failed'
