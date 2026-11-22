@@ -164,29 +164,105 @@ tasks is pushed before that.
 
 1. **Fix choppy audio.** 0.5.1 made the game smooth, but the audio is still
    choppy.
-   - **Evidence so far:** at 480 samples (perf-test-4/5), the mixer callback ran
-     about 85 times per second for a device that plays 100 buffers per second.
-     A producer that stays one buffer ahead runs at exactly the device rate. A
+   - **Evidence:** at 480 samples (perf-test-4/5), the mixer callback ran about
+     85 times per second for a device that plays 100 buffers per second. A
+     producer that stays one buffer ahead runs at exactly the device rate. A
      steady shortfall therefore means the device runs dry between buffers.
-   - **Likely causes:** the shortfall fits a refill that waits for the buffer
-     just queued to finish. SDL's Switch backend keeps only two buffers and
-     wakes on 5 ms audren frames. Larger buffers in 0.5.1 made the gaps rarer,
-     not gone. Also on the audio thread: occasional long callbacks (up to 12 ms)
-     from xWMA decoding and from FACT reading streaming data off the SD card.
-   - **Plan:** read the backend source to confirm, then keep more audio queued
-     than one buffer. Move decoding and SD reads off the critical path if they
-     still cause gaps. Measure with perf.log: callbacks should match the device
-     rate.
+   - **Cause, confirmed in the linked library:** this is SDL 2.28.5's Switch
+     backend (devkitPro `switch-sdl-2.28`, `SDL_switchaudio.c`). The
+     disassembly of `SWITCHAUDIO_PlayDevice` in the `libSDL2.a` the NRO links
+     matches the source.
+     - It has only two wave buffers.
+     - After queuing one, it spins until that buffer is `Playing`, and only
+       then returns for the next mix.
+     - Its loop runs `audrvUpdate()` before `audrenWaitFrame()`, so it tests
+       state from before the wait and sees each buffer change 5-10 ms late, on
+       top of the renderer's 5 ms frames.
+
+     At 10 ms buffers the next buffer often came after the device had run dry.
+     At 21 ms (0.5.1) the margin is thin, so any slow callback still opens a
+     gap; perf.log showed spikes up to 12 ms.
+   - **Ruled out:** the FFmpeg xWMA decoder. It decodes incrementally, and FACT
+     submits each streaming xWMA wave as one buffer ("load the whole thing"),
+     so the decoder resets only when a track starts or loops.
+   - **Fix (`runtime-probe/native/switch_audio.cpp`):** a replacement SDL audio
+     backend, linked in place of SDL's with `-Wl,--wrap=SWITCHAUDIO_bootstrap`.
+     - It keeps up to four buffers queued, the audio renderer's limit for one
+       voice (libnx `audrv`).
+     - The mixer writes straight into the next free slice of the renderer's
+       memory pool.
+     - `WaitDevice` refreshes the renderer state before checking, so it returns
+       at the first frame after the oldest buffer has played.
+     - A late wake-up or a slow callback now costs latency (at most 85 ms with
+       4 x 1024 samples), not a gap.
+     - SDL's private structures are declared for 2.28.5 only. `static_assert`s
+       pin the offsets that SDL's own backend uses in the linked library,
+       checked by disassembly: device `spec` 8, `hidden` 144, and driver entry
+       points 8/16/32/40/48/72/128. A `SDL_VERSIONNUM` check rejects any other
+       SDL.
+   - **Measurement:** perf.log's audio field adds `underruns=` (times every
+     queued buffer had played before the next arrived), `drops=` (the
+     renderer's voice drops) and `queue=4x1024`. A working fix shows
+     `underruns=0` in play. `audio_buffers = 2..4` in `config.ini` changes the
+     queue depth without a rebuild.
 2. **SaltyNX FPS support.** Make the game's frame rate readable by SaltyNX
    tools, such as Status Monitor's FPS counter. NX-FPS normally provides it by
-   hooking a retail game's graphics calls, which does not apply to a homebrew
-   NRO with a statically linked Mesa.
-   - **Plan:** publish the frame rate from the host itself, in the
-     shared-memory format that NX-FPS uses and that Status Monitor reads, when
-     SaltyNX is running. Do nothing when SaltyNX is not running. The values come
-     from the present timing the perf monitor already measures.
+   hooking a retail game's graphics calls. That does not apply to a homebrew
+   NRO with a statically linked Mesa, and SaltyNX does not inject into
+   title-replacement processes ("hbloader") at all.
+   - **Protocol, from the sources of SaltyNX `saltysd_proc`, NX-FPS and Status
+     Monitor:**
+     - SaltyNX serves the named port `SaltySD` with legacy SFCI IPC. Command 6
+       reserves shared memory (a bump allocator), command 7 returns the 4 KiB
+       shared-memory handle, and command 0 ends the session.
+     - Unlike SaltyNX's other commands, 6 and 7 are not limited to injected
+       processes.
+     - Status Monitor scans the block for the first NX-FPS magic `0x465053`. It
+       clears `pluginActive`, waits 100 ms, and treats the game as running if
+       the flag is set again. It then shows `FPS`, or the average of the ten
+       `FPSticks`.
+   - **Implementation (`runtime-probe/native/saltynx_fps.c`):**
+     - A background thread does the handshake, so SaltyNX being busy or
+       missing never stalls the game. It reserves the 310-byte block and maps
+       the memory.
+     - Every present updates the block the way NX-FPS's `PostFrame` does.
+       This is independent of logging.
+     - SaltyNX zeroes its memory, except the first word, whenever an
+       application starts. The reservation counter is reset only when SaltyNX
+       injects into a retail game, so if no space is left the block uses
+       NX-FPS's usual offset 4.
+     - Stale NX-FPS blocks from an earlier run in the same hbloader process are
+       withdrawn, because Status Monitor would read the first one. The block is
+       withdrawn again at exit.
+     - `saltynx = 0` in `config.ini` turns it off.
+   - **Verified on the build PC:** the update logic, compiled from the source
+     against a simulated clock, gives Status Monitor's displayed value exactly
+     at 60, 30 and 45 fps. It recovers 2.5 s after a 3 s stall and re-sets
+     `pluginActive`. The block layout is pinned with `_Static_assert`s (310
+     bytes; Status Monitor reads the first 174).
+3. **Config file:** `sdmc:/switch/castleminerz/config.ini` now has three keys:
+   `logging`, `audio_buffers` (2-4, default 4) and `saltynx`. The parser
+   passed 13 host cases.
 
-**Status:** in progress. Nothing has been built or pushed for these tasks yet.
+**Status:** built as perf-test-7 (version 0.5.2), NRO SHA-256
+`C7AFD06F32B52D7F064A69C8C5D760BD68F0E2FCF0C6C4501ABDBF23B5F1D3D1`, and handed
+to the owner for a hardware test.
+- The linked ELF contains `__wrap_SWITCHAUDIO_bootstrap` and none of SDL's
+  `SWITCHAUDIO_*` code.
+- All six host regression scripts pass.
+- Committed locally, not pushed.
+- Neither change has run on hardware yet.
+
+**Owner checks for perf-test-7:**
+
+1. **Audio:** is the music smooth? In perf.log, the `audio` field should show
+   `underruns=0` in play, `queue=4x1024`, and about 234 callbacks per 5 s.
+2. **SaltyNX:** with SaltyNX and Status Monitor installed, does Status
+   Monitor's FPS counter show a frame rate in game? perf.log has a
+   `# saltynx:` line with the shared-memory offset, or the reason it is
+   absent.
+3. **Latency:** if sound effects feel late, try `audio_buffers = 3` in
+   `config.ini` (64 ms instead of 85 ms).
 
 ### Hardware performance and 0.5.1 (November 22, 2026)
 

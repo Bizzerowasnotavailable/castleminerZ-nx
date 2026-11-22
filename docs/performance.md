@@ -23,7 +23,7 @@ Fields:
 | `offthread` | FNA3D calls made by other threads in the interval and their total duration. FNA3D's OpenGL driver queues such calls and runs them only once per frame, inside `SwapBuffers`, so each one blocks its thread until the next present. |
 | `main_cpu` | CPU time of the main thread over wall time. Near 100% means the main thread is CPU-bound. |
 | `gc` | Mono collections started in the interval (`minor`, `major`), total stop-the-world time and the longest pause. The host leaves the nursery at SGen's default 4 MB; the major collector is SGen's default concurrent mark-sweep. |
-| `audio` | Audio device callbacks (FAudio's mixer) in the interval, mixing time per callback (average and maximum), the highest output sample, callbacks that produced only silence, and the audio thread priority (`raised` = 0x2A). `audio closed` means no device was opened; `open-failed` counts failed opens, and `host.log` has SDL's reason. |
+| `audio` | Audio device callbacks (FAudio's mixer) in the interval, mixing time per callback (average and maximum), the highest output sample, callbacks that produced only silence, and the audio thread priority (`raised` = 0x2A). From 0.5.2 the project's audio backend adds `underruns` (times every queued buffer had played before the next one arrived, each an audible gap), `drops` (voice drops reported by the audio renderer) and `queue` (buffers x samples). `audio closed` means no device was opened; `open-failed` counts failed opens, and `host.log` has SDL's reason. |
 | `threads` | Managed threads that used at least 1% of a core, by name, and the number of live managed threads. |
 
 Mesa acquires the next swap-chain buffer lazily, at the first use of the window
@@ -59,6 +59,25 @@ under a frame.
   `perf.log` shows the size SDL actually granted. A device that keeps up runs
   about 234 callbacks per 5-second interval at 1024 samples, or 500 at 480.
 
+### Audio backend (0.5.2, awaiting hardware test)
+
+Larger buffers alone did not stop the choppy audio, because the gaps come
+from SDL 2.28.5's Switch backend. It keeps two wave buffers. After queuing one,
+it waits until that buffer starts playing before the mixer may produce the
+next. Its wait loop also checks renderer state from before each 5 ms renderer
+frame. The disassembly of the linked `libSDL2.a` matches the source.
+
+`runtime-probe/native/switch_audio.cpp` replaces that backend at link time
+(`-Wl,--wrap=SWITCHAUDIO_bootstrap`):
+
+- Up to four buffers stay queued, the renderer's limit for one voice.
+- The oldest buffer is refilled at the first renderer frame after it has
+  played.
+- A slow mixer callback or a late wake-up adds latency instead of a gap. That
+  is at most 85 ms with 4 x 1024 samples, or 64 ms with `audio_buffers = 3`.
+
+In `perf.log`, `underruns=0` during play means the device never ran dry.
+
 Eden reports no thread CPU time, so `main_cpu` and `threads` read 0% there.
 
 The FNA3D timing uses link-time wrappers (`-Wl,--wrap=FNA3D_...`).
@@ -92,6 +111,35 @@ With logging off:
 
 An `aot_config.ini` override in that directory still takes precedence over both
 embedded configs. Turn logging back on before collecting logs for a report.
+
+## Other config.ini settings (0.5.2)
+
+The same file holds two more keys. Both use the same rules as `logging`:
+
+```ini
+audio_buffers = 3   ; audio buffers kept queued, 2-4 (default 4)
+saltynx = 0         ; do not publish the frame rate to SaltyNX tools
+```
+
+Fewer audio buffers lower the latency of sound effects (21 ms per buffer) and
+leave less room for a slow mixer callback. Values outside 2-4 are ignored.
+
+## SaltyNX frame rate (0.5.2, awaiting hardware test)
+
+Status Monitor's FPS counter normally gets its numbers from SaltyNX's NX-FPS
+plugin, which hooks a retail game's present calls from inside the game process.
+SaltyNX does not inject into homebrew in title-replacement mode, so the host
+publishes the same data itself (`runtime-probe/native/saltynx_fps.c`).
+
+At startup a background thread connects to SaltyNX's `SaltySD` port. It
+reserves an NX-FPS block in SaltyNX's shared memory, using commands 6 and 7,
+which SaltyNX allows for any process. Every present then updates `FPS`,
+`FPSavg`, the last ten frame times, `frameNumber` and `pluginActive`, as
+NX-FPS does. This works with logging on or off.
+
+Without SaltyNX the port does not exist and nothing else changes. With logging
+on, `perf.log` has a `# saltynx:` line: the shared-memory offset in use, or the
+reason there is none.
 
 ## Sampling profiler (opt-in)
 

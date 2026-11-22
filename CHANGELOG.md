@@ -6,6 +6,32 @@ it locally from their own package with `scripts/prepare-game.ps1` (see
 [`docs/installation.md`](docs/installation.md)). Measurements and reasoning are
 in [`JOURNEY.md`](JOURNEY.md) and [`docs/performance.md`](docs/performance.md).
 
+## [0.5.2] - unreleased (awaiting hardware test)
+
+Built as perf-test-7 for the owner's hardware test. Not pushed until approved.
+
+### Fixed
+
+- **Choppy audio.** The cause is SDL 2.28.5's Switch audio backend. It keeps
+  only two wave buffers, and it waits until a newly queued buffer starts
+  playing before the mixer may produce the next. It also notices each buffer
+  change 5-10 ms late, so the device ran dry between buffers.
+  `runtime-probe/native/switch_audio.cpp` replaces it at link time
+  (`-Wl,--wrap=SWITCHAUDIO_bootstrap`). Up to four buffers stay queued (the
+  audio renderer's limit for one voice), and each is refilled as soon as it
+  has played. A slow mixer callback now adds latency, at most 85 ms, instead
+  of a gap.
+
+### Added
+
+- **Frame rate for SaltyNX tools.** When SaltyNX is installed, the host
+  publishes the frame rate in the shared-memory block that NX-FPS uses, so
+  Status Monitor's FPS counter works for this homebrew. SaltyNX itself does
+  not inject into title-replacement processes. The handshake runs on a
+  background thread, and nothing changes without SaltyNX.
+- **config.ini keys** `audio_buffers = 2..4` (default 4) and `saltynx = 0`.
+- **perf.log** audio field: `underruns=`, `drops=` and `queue=`.
+
 ## [0.5.1] - 2026-11-22
 
 Follow-up to the perf-test-4 and perf-test-5 hardware measurements. The build
