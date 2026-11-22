@@ -78,8 +78,9 @@ The project also provides:
 - the full native stack (SDL2 → EGL → switch-mesa GLES 3.0 → FNA3D →
   MojoShader, plus FAudio with an FFmpeg xWMA decoder) linked into the Mono
   static-AOT image with no undefined symbols;
-- always-on frame, GC and audio logging and an opt-in sampling profiler for
-  hardware runs ([`docs/performance.md`](docs/performance.md));
+- frame, GC and audio logging and an opt-in sampling profiler for hardware runs
+  ([`docs/performance.md`](docs/performance.md)); the logging toggle lives in
+  `sdmc:/switch/castleminerz/config.ini` (`logging=0` to disable);
 - ten project-authored replacement effects for the Xbox GPU binaries, with
   MojoShader GLSL ES 3 translation and interface tests;
 - Xbox cubemap and raw model-buffer byte-order fixes, verified in Eden; and
@@ -260,6 +261,22 @@ required. An `aot_config.ini` in that folder overrides the embedded defaults for
 debugging. A boot without the override was verified in Eden **with the required
 package and processed assemblies still present**; this was not an empty-SD or
 package-only installation test.
+
+Host and performance logging can also be turned off without rebuilding the NRO by
+creating `sdmc:/switch/castleminerz/config.ini` on the SD card:
+
+```ini
+[logging]
+logging=0
+```
+
+- `logging=0` disables host log (`host.log`) and performance log (`perf.log`) creation and thread initialization.
+- Any other value (or no file) leaves logging on by default.
+
+On hardware the NRO now runs with a **75% render scale** (960×540 internal
+buffer scaled by FNA3D to the 1280×720 display, fixing the menu crop) and a
+**1024-sample audio quantum** (passed to `FAudioCreate`, not the mastering voice
+call) that cuts mixer overhead. Version is **0.5.1**.
 
 On hardware, launch in **full application mode** (hold R while starting an
 installed game to open hbmenu), not from the album. The Mono runtime needs the

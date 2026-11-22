@@ -60,6 +60,7 @@ constexpr int kReporterPriority = 0x3B;
 CmzPerfLogFn g_host_log = nullptr;
 bool g_initialized = false;
 std::atomic<bool> g_runtime_attached{false};
+bool g_enabled = false;
 Handle g_main_thread = INVALID_HANDLE;
 uint64_t g_main_stack_lo = 0;
 uint64_t g_main_stack_hi = 0;
@@ -1372,12 +1373,16 @@ CMZ_CHECK_WRAPPER(FNA3D_EndPassRestore);
 // ---------------------------------------------------------------------------
 // Entry points
 
-extern "C" void cmz_perf_initialize(CmzPerfLogFn host_log) {
+extern "C" void cmz_perf_initialize(CmzPerfLogFn host_log, bool enabled) {
     if (g_initialized) {
         return;
     }
     g_initialized = true;
     g_host_log = host_log;
+    g_enabled = enabled;
+    if (!enabled) {
+        return;
+    }
     g_tick_freq = armGetSystemTickFreq();
     g_start_tick = armGetSystemTick();
     g_main_thread = envGetMainThreadHandle();
@@ -1435,7 +1440,7 @@ extern "C" void cmz_perf_initialize(CmzPerfLogFn host_log) {
 }
 
 extern "C" void cmz_perf_note(const char* text) {
-    if (text == nullptr) {
+    if (!g_enabled || text == nullptr) {
         return;
     }
     mutexLock(&g_notes.lock);
@@ -1458,7 +1463,7 @@ extern "C" void cmz_perf_note(const char* text) {
 }
 
 extern "C" void cmz_perf_attach_runtime(void) {
-    if (!g_initialized || g_runtime_attached.load(kRelaxed)) {
+    if (!g_enabled || !g_initialized || g_runtime_attached.load(kRelaxed)) {
         return;
     }
     MonoProfilerHandle handle = mono_profiler_create(&g_profiler_state);

@@ -3,7 +3,8 @@ param(
     [string]$DevkitPro = "C:\devkitPro",
     [string]$Workspace = (Join-Path $env:LOCALAPPDATA "Temp\opencode\castleminerz-deps"),
     [string]$ManagedSource = (Join-Path $env:LOCALAPPDATA "Temp\opencode\castleminerz-analysis\game-extracted\584E07D1"),
-    [string]$OutputDirectory = (Split-Path -Parent $PSScriptRoot)
+    [string]$OutputDirectory = (Split-Path -Parent $PSScriptRoot),
+    [string]$Icon = ''
 )
 
 # Builds a development NRO that runs the user's CastleMiner Z package through
@@ -110,6 +111,28 @@ foreach ($name in @('stfs.cpp', 'stfs_devoptab.cpp', 'game_image.cpp', 'package_
 $stageInclude = Join-Path $stageAot 'include\cmz'
 New-Item -ItemType Directory -Force -Path $stageInclude | Out-Null
 Copy-Item -Path (Join-Path $repo 'include\cmz\*.hpp') -Destination $stageInclude -Force
+
+if (-not [string]::IsNullOrWhiteSpace($Icon)) {
+    $iconPath = (Resolve-Path -LiteralPath $Icon -ErrorAction Stop).ProviderPath
+    if (-not (Test-Path -LiteralPath $iconPath -PathType Leaf)) {
+        throw "-Icon must name an image file: $Icon"
+    }
+    # elf2nro needs a 256x256 JPEG. Convert here so the source can stay a PNG
+    # outside the repository; the image is embedded in the NRO, not staged.
+    Add-Type -AssemblyName System.Drawing
+    $iconImage = [System.Drawing.Image]::FromFile($iconPath)
+    try {
+        $iconBitmap = [System.Drawing.Bitmap]::new($iconImage, 256, 256)
+        try {
+            $iconBitmap.Save((Join-Path $stageAot 'icon.jpg'),
+                [System.Drawing.Imaging.ImageFormat]::Jpeg)
+        } finally {
+            $iconBitmap.Dispose()
+        }
+    } finally {
+        $iconImage.Dispose()
+    }
+}
 
 $fnaProject = Join-Path $Workspace 'FNA\FNA.Core.csproj'
 $fnaDll = Join-Path $Workspace 'FNA\bin\Release\net8.0\FNA.dll'
@@ -486,7 +509,7 @@ $command = "set -e; " +
     "export ICU_NX_INSTALL_DIR='$msysIcuRoot'; " +
     "cd '$msysAot'; " +
     "make -j4 TARGET=castleminerz " +
-    "APP_TITLE='CastleMiner Z' APP_AUTHOR='castleminerZ-nx' APP_VERSION='0.1.0'"
+    "APP_TITLE='CastleMiner Z' APP_AUTHOR='castleminerZ-nx' APP_VERSION='0.5.1'"
 # gcc reports warnings on stderr. Windows PowerShell turns that into a terminating
 # error under Stop, so only the make exit code decides success here.
 $previousPreference = $ErrorActionPreference

@@ -4,7 +4,7 @@ The runtime host measures the game while it runs, so frame rate problems can be
 traced on real hardware instead of guessed. Nothing here changes what the game
 does. The code is in `runtime-probe/native/perf_monitor.cpp`.
 
-## perf.log (always on)
+## perf.log (on by default, toggleable)
 
 Every 5 seconds the host appends one line to
 `sdmc:/switch/castleminerz-logs/perf.log` (the file is rewritten at each launch).
@@ -22,7 +22,7 @@ Fields:
 | `prims`, `upload_kb`, `texture_kb` | Primitives drawn, and vertex/index and texture bytes uploaded, per frame. |
 | `offthread` | FNA3D calls made by other threads in the interval and their total duration. FNA3D's OpenGL driver queues such calls and runs them only once per frame, inside `SwapBuffers`, so each one blocks its thread until the next present. |
 | `main_cpu` | CPU time of the main thread over wall time. Near 100% means the main thread is CPU-bound. |
-| `gc` | Mono collections started in the interval (`minor`, `major`), total stop-the-world time and the longest pause. The host sets a 16 MB nursery (`MONO_GC_PARAMS=nursery-size=16m`); the major collector is SGen's default concurrent mark-sweep. |
+| `gc` | Mono collections started in the interval (`minor`, `major`), total stop-the-world time and the longest pause. The host leaves the nursery at SGen's default 4 MB; the major collector is SGen's default concurrent mark-sweep. |
 | `audio` | Audio device callbacks (FAudio's mixer) in the interval, mixing time per callback (average and maximum), the highest output sample, callbacks that produced only silence, and the audio thread priority (`raised` = 0x2A). `audio closed` means no device was opened; `open-failed` counts failed opens, and `host.log` has SDL's reason. |
 | `threads` | Managed threads that used at least 1% of a core, by name, and the number of live managed threads. |
 
@@ -37,11 +37,32 @@ that only once per frame, in `SwapBuffers`; the port's FNA3D patch also runs
 them before every effect pass, so `offthread` time per call should stay well
 under a frame.
 
+### Render Scale & Audio Fixes
+
+- **Render scale**: Set to **75%** (`CMZ_RENDER_SCALE=75`) via FNA3D so FNA3D's faux backbuffer scales the image up to 1280×720 while the internal framebuffer is 960×540. This cuts terrain fragment work nearly in half without changing display mode. Implemented by patch `patches/fna3d/0003-render-scale.patch` (added to live tree) and reverted on FNA with `patches/fna/0004-render-scale.patch`.
+- **Audio**: 1024-sample quantum passed to `FAudioCreate` (via `patches/fna/0005-audio-1024-quantum.patch`). SDL audio driver measured; mixer output recorded in `perf.log`.
+
 Eden reports no thread CPU time, so `main_cpu` and `threads` read 0% there.
 
 The FNA3D timing uses link-time wrappers (`-Wl,--wrap=FNA3D_...`).
 `build-game.ps1` derives the wrapper list from `perf_monitor.cpp` and fails the
 build if a wrapper lacks its compile-time signature check against `FNA3D.h`.
+
+## Logging toggle
+
+Host and performance logging can be turned off without rebuilding the NRO by
+creating `sdmc:/switch/castleminerz/config.ini` on the SD card:
+
+```ini
+[logging]
+logging=0
+```
+
+- `logging=0` disables host log creation (`host.log`) and the perf monitor
+  threads/initialization. Any other value (including an absent file) leaves
+  logging on by default.
+- When disabled, the host skips the log directory, host log file, perf monitor
+  initialization, and perf notes.
 
 ## Sampling profiler (opt-in)
 

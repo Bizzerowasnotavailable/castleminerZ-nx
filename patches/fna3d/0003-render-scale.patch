@@ -1,0 +1,149 @@
+diff --git a/src/FNA3D_Driver_OpenGL.c b/src/FNA3D_Driver_OpenGL.c
+--- a/src/FNA3D_Driver_OpenGL.c
++++ b/src/FNA3D_Driver_OpenGL.c
+@@ -185,6 +185,13 @@ typedef struct OpenGLRenderer /* Cast from FNA3D_Renderer* */
+ 	GLuint realBackbufferRBO;
+ 	uint8_t srgbEnabled;
+ 
++	/* castleminerZ-nx: optional render scale. The window and the size the
++	 * game sees stay at backBufferWidth/Height; the faux backbuffer and the
++	 * GL viewport/scissor are scaled by this factor. CMZ_RENDER_SCALE is a
++	 * percentage (25-100), read when the device is created.
++	 */
++	float renderScale;
++
+ 	/* VAO for Core Profile */
+ 	GLuint vao;
+ 
+@@ -1776,11 +1783,26 @@ static void OPENGL_SetViewport(FNA3D_Renderer *driverData, FNA3D_Viewport *viewp
+ 	int32_t bbw, bbh;
+ 	FNA3D_Viewport vp = *viewport;
+ 
+-	/* Flip viewport when target is not bound */
++	/* Scale and flip the viewport when the backbuffer is the target. The
++	 * game still works in backBufferWidth/Height coordinates; the faux
++	 * backbuffer is smaller, so map the rectangle into it.
++	 */
+ 	if (!renderer->renderTargetBound)
+ 	{
+ 		OPENGL_GetBackbufferSize(driverData, &bbw, &bbh);
+-		vp.y = bbh - viewport->y - viewport->h;
++		vp.x = (int32_t) (vp.x * renderer->renderScale + 0.5f);
++		vp.y = (int32_t) (vp.y * renderer->renderScale + 0.5f);
++		vp.w = (int32_t) (vp.w * renderer->renderScale + 0.5f);
++		vp.h = (int32_t) (vp.h * renderer->renderScale + 0.5f);
++		if (vp.w < 1)
++		{
++			vp.w = 1;
++		}
++		if (vp.h < 1)
++		{
++			vp.h = 1;
++		}
++		vp.y = bbh - vp.y - vp.h;
+ 	}
+ 
+ 	if (	vp.x != renderer->viewport.x ||
+@@ -1826,11 +1848,17 @@ static void OPENGL_SetScissorRect(FNA3D_Renderer *driverData, FNA3D_Rect *scisso
+ 	int32_t bbw, bbh;
+ 	FNA3D_Rect sr = *scissor;
+ 
+-	/* Flip rectangle when target is not bound */
++	/* Scale and flip the rectangle when the backbuffer is the target, for
++	 * the same reason as the viewport above.
++	 */
+ 	if (!renderer->renderTargetBound)
+ 	{
+ 		OPENGL_GetBackbufferSize(driverData, &bbw, &bbh);
+-		sr.y = bbh - scissor->y - scissor->h;
++		sr.x = (int32_t) (sr.x * renderer->renderScale + 0.5f);
++		sr.y = (int32_t) (sr.y * renderer->renderScale + 0.5f);
++		sr.w = (int32_t) (sr.w * renderer->renderScale + 0.5f);
++		sr.h = (int32_t) (sr.h * renderer->renderScale + 0.5f);
++		sr.y = bbh - sr.y - sr.h;
+ 	}
+ 
+ 	if (	sr.x != renderer->scissorRect.x ||
+@@ -2914,13 +2942,35 @@ static void OPENGL_INTERNAL_CreateBackbuffer(
+ ) {
+ 	int32_t useFauxBackbuffer;
+ 	int32_t drawX, drawY;
++	int32_t renderWidth, renderHeight;
+ 	SDL_GetWindowSizeInPixels(
+ 		(SDL_Window*) parameters->deviceWindowHandle,
+ 		&drawX,
+ 		&drawY
+ 	);
++
++	/* The game-visible backbuffer stays at parameters->backBufferWidth/Height.
++	 * The actual color buffer is scaled down; the swap blits it up to the
++	 * window. A scale of 1 renders directly to the window.
++	 */
++	renderWidth = (int32_t) (
++		parameters->backBufferWidth * renderer->renderScale + 0.5f
++	);
++	renderHeight = (int32_t) (
++		parameters->backBufferHeight * renderer->renderScale + 0.5f
++	);
++	if (renderWidth < 1)
++	{
++		renderWidth = 1;
++	}
++	if (renderHeight < 1)
++	{
++		renderHeight = 1;
++	}
++
+ 	useFauxBackbuffer = (	drawX != parameters->backBufferWidth ||
+-				drawY != parameters->backBufferHeight	);
++				drawY != parameters->backBufferHeight ||
++				renderer->renderScale != 1.0f	);
+ 	useFauxBackbuffer = (	useFauxBackbuffer ||
+ 				(parameters->multiSampleCount > 0)	);
+ 
+@@ -2946,8 +2996,8 @@ static void OPENGL_INTERNAL_CreateBackbuffer(
+ 			);
+ 			renderer->backbuffer->type = BACKBUFFER_TYPE_OPENGL;
+ 
+-			renderer->backbuffer->width = parameters->backBufferWidth;
+-			renderer->backbuffer->height = parameters->backBufferHeight;
++			renderer->backbuffer->width = renderWidth;
++			renderer->backbuffer->height = renderHeight;
+ 			renderer->backbuffer->depthFormat = parameters->depthStencilFormat;
+ 			renderer->backbuffer->isSrgb = parameters->backBufferFormat == FNA3D_SURFACEFORMAT_COLORSRGB_EXT;
+ 			renderer->backbuffer->multiSampleCount = parameters->multiSampleCount;
+@@ -3067,8 +3117,8 @@ static void OPENGL_INTERNAL_CreateBackbuffer(
+ 		}
+ 		else
+ 		{
+-			renderer->backbuffer->width = parameters->backBufferWidth;
+-			renderer->backbuffer->height = parameters->backBufferHeight;
++			renderer->backbuffer->width = renderWidth;
++			renderer->backbuffer->height = renderHeight;
+ 			renderer->backbuffer->isSrgb = parameters->backBufferFormat == FNA3D_SURFACEFORMAT_COLORSRGB_EXT;
+ 			renderer->backbuffer->multiSampleCount = parameters->multiSampleCount;
+ 			if (renderer->backbuffer->opengl.texture != 0)
+@@ -5976,6 +6026,23 @@ FNA3D_Device* OPENGL_CreateDevice(
+ 	renderer = (OpenGLRenderer*) SDL_malloc(sizeof(OpenGLRenderer));
+ 	SDL_memset(renderer, '\0', sizeof(OpenGLRenderer));
+ 
++	/* castleminerZ-nx: optional render scale, a percentage of the window
++	 * and backbuffer size. The host sets CMZ_RENDER_SCALE; values outside
++	 * 25-100 are ignored and the backbuffer is not scaled.
++	 */
++	renderer->renderScale = 1.0f;
++	{
++		const char *renderScaleEnv = SDL_getenv("CMZ_RENDER_SCALE");
++		if (renderScaleEnv != NULL)
++		{
++			const int renderScalePercent = SDL_atoi(renderScaleEnv);
++			if (renderScalePercent >= 25 && renderScalePercent <= 100)
++			{
++				renderer->renderScale = (float) renderScalePercent / 100.0f;
++			}
++		}
++	}
++
+ 	/* The FNA3D_Device and OpenGLRenderer need to reference each other */
+ 	renderer->parentDevice = result;
+ 	result->driverData = (FNA3D_Renderer*) renderer;

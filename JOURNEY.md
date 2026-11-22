@@ -303,6 +303,29 @@ Build a playable Nintendo Switch port of CastleMiner Z using Xbox 360 GOD/STFS p
 
 ---
 
+## Logging Configuration
+
+- **File Location**: `sdmc:/switch/castleminerz/config.ini` (new file)
+- **Format**: 
+  ```
+  [logging]
+  logging=0
+  ```
+  - `logging=0` disables host log (`host.log`) and performance log (`perf.log`) creation and thread initialization.
+  - Any other value (including missing file) enables logging by default.
+- **Impact**: 
+  - When disabled: no `sdmc:/switch/castleminerz-logs` directory created, no host log file opened, `cmz_perf_initialize` called with `enabled=false`, and `cmz_perf_note` calls are skipped.
+  - When enabled (default): standard log directory creation, host log file opened, `cmz_perf_initialize` called with `enabled=true`, and all perf monitoring threads start normally.
+- **Usage**: 
+  - To disable logging (reduce CPU overhead): create `sdmc:/switch/castleminerz/config.ini` with `logging=0`.
+  - To enable logging (default): either omit the file or set `logging=1` (or any non-zero value).
+- **Related Changes**: 
+  - `main.cpp` added `logging_enabled()` helper function.
+  - `perf_monitor.h` updated `cmz_perf_initialize` signature to accept `bool enabled`.
+  - `perf_monitor.cpp` added `g_enabled` flag and early-return logic in `cmz_perf_initialize`, `cmz_perf_note`, and `cmz_perf_attach_runtime`.
+  - `build-game.ps1` updated `APP_VERSION` to `0.5.1`.
+- **Status**: Implemented and tested in local builds.
+
 ## Technical Details
 
 ### Switch Profile Integration

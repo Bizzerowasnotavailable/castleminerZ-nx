@@ -1,0 +1,19 @@
+diff --git a/src/Audio/SoundEffect.cs b/src/Audio/SoundEffect.cs
+index 3c0b054..9574c1f 100644
+--- a/src/Audio/SoundEffect.cs
++++ b/src/Audio/SoundEffect.cs
+@@ -817,9 +817,13 @@ namespace Microsoft.Xna.Framework.Audio
+ 				IntPtr ctx;
+ 				try
+ 				{
++					// castleminerZ-nx: 1024-sample engine quantum (21 ms at
++					// 48 kHz) instead of 480. SDL's Switch backend keeps two
++					// buffers, so this absorbs scheduling jitter that chopped
++					// music. This flag is read by FAudio_PlatformInit.
+ 					FAudio.FAudioCreate(
+ 						out ctx,
+-						0,
++						FAudio.FAUDIO_1024_QUANTUM,
+ 						FAudio.FAUDIO_DEFAULT_PROCESSOR
+ 					);
+ 				}

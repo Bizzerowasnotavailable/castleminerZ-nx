@@ -83,6 +83,67 @@ bool ensure_directory(const char* path) {
     return mkdir(path, 0777) == 0;
 }
 
+// sdmc:/switch/castleminerz/config.ini may turn host and performance logging
+// off:
+//   [logging]
+//   logging=0
+// Missing file, an unreadable key, or any value other than 0 leaves logging on
+// (the default). The check is done before any log directory is created so a
+// disabled build touches the SD card as little as possible.
+bool logging_enabled() {
+    std::FILE* file = std::fopen("sdmc:/switch/castleminerz/config.ini", "r");
+    if (file == nullptr) {
+        return true;
+    }
+    bool enabled = true;
+    char line[256];
+    while (std::fgets(line, sizeof(line), file) != nullptr) {
+        const char* p = line;
+        while (*p == ' ' || *p == '\t') {
+            ++p;
+        }
+        if (*p == '\0' || *p == '\n' || *p == '\r' || *p == ';' || *p == '#') {
+            continue;
+        }
+        const char* key = p;
+        while (*p != '\0' && *p != '=' && *p != '\n' && *p != '\r') {
+            ++p;
+        }
+        if (*p != '=') {
+            continue;
+        }
+        const std::size_t keylen = p - key;
+        if (keylen != 7) {
+            continue;
+        }
+        // Case-insensitive compare with "logging".
+        bool matches = true;
+        for (std::size_t i = 0; i < keylen; ++i) {
+            char a = key[i], b = "logging"[i];
+            if (a >= 'A' && a <= 'Z') {
+                a = static_cast<char>(a - 'A' + 'a');
+            }
+            if (b >= 'A' && b <= 'Z') {
+                b = static_cast<char>(b - 'A' + 'a');
+            }
+            if (a != b) {
+                matches = false;
+                break;
+            }
+        }
+        if (!matches) {
+            continue;
+        }
+        ++p;
+        while (*p == ' ' || *p == '\t') {
+            ++p;
+        }
+        enabled = (*p != '0');
+    }
+    std::fclose(file);
+    return enabled;
+}
+
 // "stfs:/584E07D1/Content" -> "stfs:/584E07D1/"; "Content" -> "stfs:/"
 std::string base_directory_for(const std::string& content_directory) {
     const std::size_t separator = content_directory.rfind('/');
@@ -127,6 +188,11 @@ void configure_environment() {
     setenv("CMZ_REPLACEMENT_EFFECT_DIRECTORY", "romfs:/effects", 1);
     // BlockEffect samples the first environment slice at its exact texel center.
     setenv("CMZ_FIRST_ENVIRONMENT_SLICE_ONLY", "1", 1);
+    // Gameplay is GPU-bound on hardware. Render at 75% of the window size and
+    // let FNA3D's faux backbuffer scale the image up to 1280x720; this cuts the
+    // terrain fragment work nearly in half without changing the display mode.
+    // FNA reads this in the GraphicsDevice constructor.
+    setenv("CMZ_RENDER_SCALE", "75", 1);
 
     // The base path is provided by sdl_paths.cpp, so this only keeps FNA from
     // preferring AppDomain.CurrentDomain.BaseDirectory if the order changes.
@@ -195,10 +261,11 @@ void cmz_sdl_log_to_host(void* /*userdata*/, int category,
 int main(int argc, char* argv[]) {
     romfsInit();
 
+    const bool logging = logging_enabled();
     const bool log_directory_ready =
         ensure_directory("sdmc:/switch") &&
         ensure_directory("sdmc:/switch/castleminerz-logs");
-    if (log_directory_ready) {
+    if (log_directory_ready && logging) {
         g_log = std::fopen(kLogPath, "w");
     }
     SDL_LogSetOutputFunction(cmz_sdl_log_to_host, nullptr);
@@ -221,8 +288,9 @@ int main(int argc, char* argv[]) {
     log_line("controller buttons: Nintendo labels (A=accept, B=back)");
 
     // Frame, FNA3D, GC and thread statistics go to perf.log; profile.ini in
-    // the log directory additionally enables the sampling profiler.
-    cmz_perf_initialize(log_text);
+    // the log directory additionally enables the sampling profiler. The SD card
+    // config can turn logging off entirely.
+    cmz_perf_initialize(log_text, logging);
 
     SDL_version sdl_version {};
     SDL_GetVersion(&sdl_version);
@@ -349,7 +417,9 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     log_line("mono_jit_init: done");
-    cmz_perf_attach_runtime();
+    if (logging) {
+        cmz_perf_attach_runtime();
+    }
 
     // Mono resolves static-AOT dependencies before mono_jit_exec establishes
     // AppContext.BaseDirectory. Preload the companion assembly explicitly so
