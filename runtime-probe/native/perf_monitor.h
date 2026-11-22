@@ -9,6 +9,10 @@
 // into profile.bin. See docs/performance.md for the fields and the analysis
 // script.
 
+#ifndef __cplusplus
+#include <stdbool.h>
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

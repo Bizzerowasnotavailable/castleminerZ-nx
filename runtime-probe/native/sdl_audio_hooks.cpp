@@ -19,6 +19,7 @@
 
 #include "sdl_audio_hooks.h"
 #include "perf_monitor.h"
+#include "switch_audio.h"
 
 #include <switch.h>
 
@@ -264,6 +265,12 @@ void cmz_audio_take_report(CmzAudioReport* report) {
     const uint32_t bits = g_peak_bits.exchange(0, kRelaxed);
     std::memcpy(&report->peak, &bits, sizeof(bits));
     report->priority_raised = g_priority_raised.load(kRelaxed) ? 1 : 0;
+    CmzSwitchAudioStats backend {};
+    cmz_switch_audio_stats(&backend);
+    report->underruns = backend.underruns;
+    report->voice_drops = backend.voice_drops;
+    report->buffers = backend.buffers;
+    report->buffer_samples = backend.buffer_samples;
 }
 
 } // extern "C"

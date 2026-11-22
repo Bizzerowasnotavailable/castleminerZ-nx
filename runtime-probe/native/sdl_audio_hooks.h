@@ -21,6 +21,12 @@ typedef struct CmzAudioReport {
     float peak;
     // Whether SDL's audio thread runs at the raised priority.
     int priority_raised;
+    // From the castleminerZ-nx switch backend (switch_audio.cpp). Cumulative
+    // counts; buffers is 0 until the device is open.
+    uint64_t underruns;
+    uint32_t voice_drops;
+    int buffers;
+    uint32_t buffer_samples;
 } CmzAudioReport;
 
 // Fills *report; the "since the previous call" fields are reset.

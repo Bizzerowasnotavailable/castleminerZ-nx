@@ -100,7 +100,8 @@ foreach ($relative in $trackedNativeFiles) {
 $stageSource = Join-Path $stageAot 'source'
 Remove-Item -LiteralPath (Join-Path $stageSource 'main.c') -Force
 foreach ($name in @('main.cpp', 'sdl_paths.cpp', 'host_paths.h', 'local_profile.cpp', 'local_profile.h',
-        'perf_monitor.cpp', 'perf_monitor.h', 'sdl_audio_hooks.cpp', 'sdl_audio_hooks.h')) {
+        'perf_monitor.cpp', 'perf_monitor.h', 'sdl_audio_hooks.cpp', 'sdl_audio_hooks.h',
+        'switch_audio.cpp', 'switch_audio.h', 'saltynx_fps.c', 'saltynx_fps.h')) {
     Copy-Item -LiteralPath (Join-Path $repo "runtime-probe\native\$name") `
         -Destination (Join-Path $stageSource $name) -Force
 }
@@ -487,18 +488,21 @@ if ($makefileText -notmatch 'castleminerZ-nx: FNA native stack') {
     [IO.File]::AppendAllText($makefile, $nativeLibs, (New-Object Text.UTF8Encoding($false)))
 }
 
-# The performance monitor (FNA3D timing) and the SDL audio hooks reach their
-# targets through link-time wrappers. The --wrap list comes from the __wrap_
-# definitions in those sources, and every wrapper must also have a signature
-# check (CMZ_CHECK_WRAPPER against the public header, or CMZ_INTERNAL_WRAPPER
-# for an SDL-internal function), so the source, the checks and the linker flags
-# cannot drift apart.
+# The performance monitor (FNA3D timing), the SDL audio hooks and the Switch
+# audio backend reach their targets through link-time wrappers. The --wrap
+# list comes from the __wrap_ definitions in those sources: functions, plus the
+# SWITCHAUDIO_bootstrap variable that switch_audio.cpp replaces. Every wrapper
+# must also have a check (CMZ_CHECK_WRAPPER against the public header,
+# CMZ_INTERNAL_WRAPPER for an SDL-internal function, CMZ_DATA_WRAPPER for a
+# replaced variable), so the source, the checks and the linker flags cannot
+# drift apart.
 $wrapped = @()
 $checked = @()
-foreach ($name in @('perf_monitor.cpp', 'sdl_audio_hooks.cpp')) {
+foreach ($name in @('perf_monitor.cpp', 'sdl_audio_hooks.cpp', 'switch_audio.cpp')) {
     $text = [IO.File]::ReadAllText((Join-Path $repo "runtime-probe\native\$name"))
-    $wrapped += @([regex]::Matches($text, '\b__wrap_(\w+)\s*\(') | ForEach-Object { $_.Groups[1].Value })
-    $checked += @([regex]::Matches($text, '(?m)^CMZ_(?:CHECK|INTERNAL)_WRAPPER\((\w+)\);') |
+    $wrapped += @([regex]::Matches($text, '\b__wrap_(\w+)\s*(?:\(|=\s*\{)') |
+        ForEach-Object { $_.Groups[1].Value })
+    $checked += @([regex]::Matches($text, '(?m)^CMZ_(?:CHECK|INTERNAL|DATA)_WRAPPER\((\w+)\);') |
         ForEach-Object { $_.Groups[1].Value })
 }
 $wrapped = @($wrapped | Sort-Object -Unique)
@@ -522,7 +526,7 @@ $command = "set -e; " +
     "export ICU_NX_INSTALL_DIR='$msysIcuRoot'; " +
     "cd '$msysAot'; " +
     "make -j4 TARGET=castleminerz " +
-    "APP_TITLE='CastleMiner Z' APP_AUTHOR='castleminerZ-nx' APP_VERSION='0.5.1'"
+    "APP_TITLE='CastleMiner Z' APP_AUTHOR='castleminerZ-nx' APP_VERSION='0.5.2'"
 # gcc reports warnings on stderr. Windows PowerShell turns that into a terminating
 # error under Stop, so only the make exit code decides success here.
 $previousPreference = $ErrorActionPreference

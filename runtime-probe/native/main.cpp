@@ -26,6 +26,8 @@ extern "C" {
 #include "host_paths.h"
 #include "local_profile.h"
 #include "perf_monitor.h"
+#include "saltynx_fps.h"
+#include "switch_audio.h"
 
 #include "cmz/game_image.hpp"
 #include "cmz/package_mount.hpp"
@@ -88,20 +90,44 @@ bool ensure_directory(const char* path) {
     return mkdir(path, 0777) == 0;
 }
 
-// sdmc:/switch/castleminerz/config.ini may turn all logging (host.log,
-// perf.log and mono-nx's runtime.log) off:
+// sdmc:/switch/castleminerz/config.ini (optional) holds host settings:
 //   [logging]
-//   logging = 0
-// Spaces around '=' are optional and the key is case-insensitive. A missing
-// file, a missing key, or any value that does not start with 0 leaves logging
-// on (the default). The check is done before any log directory is created so
-// a disabled build touches the SD card as little as possible.
-bool logging_enabled() {
+//   logging = 0        turns all logging (host.log, perf.log, runtime.log) off
+//   audio_buffers = 3  audio buffers kept queued, 2-4 (default 4)
+//   saltynx = 0        does not publish the frame rate to SaltyNX tools
+// Keys are case-insensitive, spaces around '=' are optional, sections are
+// ignored, and a later line wins. For the on/off keys, a value starting with 0
+// means off and anything else means on; a missing file or key keeps the
+// default (on). The file is read before any log directory is created so a
+// build with logging off touches the SD card as little as possible.
+struct HostConfig {
+    bool logging = true;
+    int audio_buffers = 0; // 0: the audio backend's default
+    bool saltynx = true;
+};
+
+bool key_is(const char* key, std::size_t length, const char* name) {
+    if (std::strlen(name) != length) {
+        return false;
+    }
+    for (std::size_t i = 0; i < length; ++i) {
+        char a = key[i];
+        if (a >= 'A' && a <= 'Z') {
+            a = static_cast<char>(a - 'A' + 'a');
+        }
+        if (a != name[i]) {
+            return false;
+        }
+    }
+    return true;
+}
+
+HostConfig read_host_config() {
+    HostConfig config;
     std::FILE* file = std::fopen("sdmc:/switch/castleminerz/config.ini", "r");
     if (file == nullptr) {
-        return true;
+        return config;
     }
-    bool enabled = true;
     char line[256];
     while (std::fgets(line, sizeof(line), file) != nullptr) {
         const char* p = line;
@@ -123,36 +149,25 @@ bool logging_enabled() {
         while (key_end > key && (key_end[-1] == ' ' || key_end[-1] == '\t')) {
             --key_end;
         }
-        const std::size_t keylen = key_end - key;
-        if (keylen != 7) {
-            continue;
-        }
-        // Case-insensitive compare with "logging".
-        bool matches = true;
-        for (std::size_t i = 0; i < keylen; ++i) {
-            char a = key[i], b = "logging"[i];
-            if (a >= 'A' && a <= 'Z') {
-                a = static_cast<char>(a - 'A' + 'a');
-            }
-            if (b >= 'A' && b <= 'Z') {
-                b = static_cast<char>(b - 'A' + 'a');
-            }
-            if (a != b) {
-                matches = false;
-                break;
-            }
-        }
-        if (!matches) {
-            continue;
-        }
+        const std::size_t key_length = key_end - key;
         ++p;
         while (*p == ' ' || *p == '\t') {
             ++p;
         }
-        enabled = (*p != '0');
+        if (key_is(key, key_length, "logging")) {
+            config.logging = (*p != '0');
+        } else if (key_is(key, key_length, "saltynx")) {
+            config.saltynx = (*p != '0');
+        } else if (key_is(key, key_length, "audio_buffers")) {
+            char* end = nullptr;
+            const long value = std::strtol(p, &end, 10);
+            if (end != p && value >= 2 && value <= 4) {
+                config.audio_buffers = static_cast<int>(value);
+            }
+        }
     }
     std::fclose(file);
-    return enabled;
+    return config;
 }
 
 // "stfs:/584E07D1/Content" -> "stfs:/584E07D1/"; "Content" -> "stfs:/"
@@ -276,7 +291,8 @@ int main(int argc, char* argv[]) {
     // no stdio, so nothing needs the log directory and it is not created.
     // mono-nx treats a stdio redirect that cannot open its file as fatal, so
     // an NRO without the quiet config keeps the normal one and the directory.
-    const bool logging = logging_enabled();
+    const HostConfig config = read_host_config();
+    const bool logging = config.logging;
     const bool quiet_runtime =
         !logging && access(kQuietRomfsConfigPath, F_OK) == 0;
     const bool log_directory_ready = !quiet_runtime &&
@@ -308,6 +324,16 @@ int main(int argc, char* argv[]) {
     // the log directory additionally enables the sampling profiler. The SD card
     // config can turn logging off entirely.
     cmz_perf_initialize(log_text, logging);
+
+    // FAudio opens the SDL audio device later, from managed code; the backend
+    // in switch_audio.cpp reads this then. The SaltyNX frame-rate block is set
+    // up on its own thread and does nothing if SaltyNX is not installed.
+    cmz_switch_audio_configure(config.audio_buffers);
+    if (config.saltynx) {
+        cmz_saltynx_start();
+    }
+    log_line("audio buffers: %d (config.ini audio_buffers; 0 = default 4), SaltyNX frame rate: %s",
+             config.audio_buffers, config.saltynx ? "on" : "off");
 
     SDL_version sdl_version {};
     SDL_GetVersion(&sdl_version);
@@ -476,6 +502,7 @@ int main(int argc, char* argv[]) {
     log_line("mono_jit_exec: done");
 
     mono_jit_cleanup(domain);
+    cmz_saltynx_stop();
 
     cmz::unmount_root_device();
     cmz::unmount_package_device();

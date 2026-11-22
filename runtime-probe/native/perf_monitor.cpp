@@ -22,6 +22,7 @@
 //     records. Between pause and resume nothing allocates, locks or does I/O.
 
 #include "perf_monitor.h"
+#include "saltynx_fps.h"
 #include "sdl_audio_hooks.h"
 
 #include <switch.h>
@@ -672,6 +673,14 @@ void write_report(std::FILE* log, const Snapshot& before, const Snapshot& after)
                  static_cast<unsigned long long>(audio.silent_callbacks -
                                                  previous_audio.silent_callbacks),
                  audio.priority_raised ? "raised" : "sdl");
+        // From the castleminerZ-nx switch backend: times the renderer ran out
+        // of queued audio, and its own voice drops, in this interval.
+        if (audio.buffers > 0) {
+            line.add(" underruns=%llu drops=%u queue=%dx%u",
+                     static_cast<unsigned long long>(audio.underruns - previous_audio.underruns),
+                     audio.voice_drops - previous_audio.voice_drops, audio.buffers,
+                     audio.buffer_samples);
+        }
     }
     previous_audio = audio;
 
@@ -1084,6 +1093,8 @@ void __wrap_FNA3D_SwapBuffers(FNA3D_Device* device, FNA3D_Rect* sourceRectangle,
     const uint64_t start = armGetSystemTick();
     __real_FNA3D_SwapBuffers(device, sourceRectangle, destinationRectangle, overrideWindowHandle);
     on_present(start);
+    // Independent of logging: SaltyNX tools read the frame rate from here.
+    cmz_saltynx_present();
 }
 
 void __wrap_FNA3D_Clear(FNA3D_Device* device, FNA3D_ClearOptions options, FNA3D_Vec4* color,
