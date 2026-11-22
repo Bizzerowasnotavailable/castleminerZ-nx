@@ -284,8 +284,9 @@ Any other value, or no file, leaves logging on. Details are in
 Version **0.5.1** renders at a **75% scale**. FNA3D draws into a 960×540 buffer
 and scales it to the 1280×720 screen, while the game keeps its 1280×720 layout.
 It also uses **1024-sample audio buffers** against the choppy music. Both
-changes respond to hardware measurements of earlier builds. This build has not
-run on hardware yet; see the [changelog](CHANGELOG.md).
+changes respond to hardware measurements of earlier builds. On hardware
+it runs smoothly and is fully playable (owner testing); see the
+[changelog](CHANGELOG.md).
 
 On hardware, launch in **full application mode** (hold R while starting an
 installed game to open hbmenu), not from the album. The Mono runtime needs the
