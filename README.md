@@ -10,8 +10,11 @@ porting framework for the Xbox Live Indie Games release of **CastleMiner Z**.
 
 ## Current status
 
-**Playable in Eden; boots on a physical Switch, where the frame rate is still
-poor and validation continues.** CastleMiner Z boots
+**Fully playable on a physical Switch as of 0.5.1 (owner hardware testing,
+November 22, 2026).** With the FNA3D render scale and 1024-sample audio buffers
+the game runs much more smoothly, and with logging turned off
+(`logging = 0`, see below) it feels like a steady 60 fps. It is also playable
+in Eden. CastleMiner Z boots
 to its title screen, enters and loads an offline world, and renders the complete
 first-person scene. Terrain, sky, clouds, water, HUD, hotbar icons and the held
 item draw correctly; movement, the first-person camera, the pause menu and the
@@ -57,12 +60,12 @@ Known limitations:
   instead of SDL's lowest-priority default. On hardware the mixer produces
   sound, but with 480-sample buffers it was called about 85 times a second for a
   device that needs 100, and the music was choppy. 0.5.1 uses 1024-sample
-  buffers; that has not been tested on hardware yet.
-- **Validation:** inventory, combat, and a full power-cycle save/load test still
-  need complete passes. On hardware the game boots and runs (owner reports), but
-  the frame rate is poor: about 13–25 fps in the world at full resolution, and
-  about 17–33 fps with a 75% render scale. The game is GPU-bound. Measurements
-  and tools are in [`docs/performance.md`](docs/performance.md).
+  buffers.
+- **Performance history:** earlier builds ran at about 13–25 fps in the world
+  at full resolution and 17–33 fps with an FNA-level 75% scale (GPU-bound).
+  0.5.1 moved the scale into FNA3D and, per owner hardware testing, runs
+  smoothly; with logging off it feels like 60 fps. Measurements and tools are
+  in [`docs/performance.md`](docs/performance.md).
 - **Behavior note:** brief full-sky white flashes are the game's original
   lightning, not a rendering fault. Above ground the game flashes the sky white
   0–3 times, 0.1–0.35 s apart, every 10–39 s, followed by thunder. Each flash
