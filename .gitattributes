@@ -1,0 +1,9 @@
+# The repository stores text with LF. Git for Windows checks text out with
+# CRLF when core.autocrlf is true, and other clients (such as devkitPro's
+# MSYS2 git) do not convert at all. These rules keep every client from
+# committing CRLF and from reporting a CRLF checkout as modified.
+* text=auto
+
+# Read by bash under WSL and by git apply; keep LF in every checkout.
+*.sh text eol=lf
+*.patch text eol=lf
