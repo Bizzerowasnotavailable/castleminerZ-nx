@@ -23,8 +23,8 @@ without a Switch. It assumes the graphics decision in
 | First-person held items | correct lower-right placement verified in Eden using the game's fallback avatar skeleton |
 | Xbox custom effects | ten project-authored replacements compile and pass MojoShader/interface checks |
 | Xbox texture/model byte order | corrected sky, hotbar icons and held models verified in Eden; synthetic reader tests pass |
-| Audio (XACT/FAudio) | PCM SFX linked; the 11 xWMA streaming entries are decoded with FFmpeg `wmav2` (`patches/faudio`); the host mixer check plays every cue; Eden audren blocks all SDL playback; on hardware the mixer produces sound, but 480-sample buffers starved and the music was choppy; 1024-sample buffers (0.5.1) not yet tested on hardware |
-| Local profile integration | selected local user and UID-scoped storage verified in Eden; synthetic facade tests pass; hardware validation pending |
+| Audio (XACT/FAudio) | PCM SFX and the 11 xWMA streaming entries (FFmpeg `wmav2`, `patches/faudio`) play on hardware; music is smooth since 0.5.2's project SDL audio backend (owner testing); the host mixer check plays every cue; Eden audren blocks all SDL playback |
+| Local profile integration | selected local user and UID-scoped storage verified in Eden; on hardware the selected profile and its UID save path are in use (host.log); synthetic facade tests pass; a full power-cycle save test is pending |
 
 The native graphics stack and package filesystem work in Eden. The reported
 “Loading Player Info” step is passed: internal GPU screenshots confirm offline
@@ -35,9 +35,11 @@ conversion; that fix passes synthetic tests and restores the hotbar icons and
 held models in Eden. First-person held items are now placed correctly because
 `AvatarRenderer` reports `Unavailable`, which selects the game's own fallback
 bind pose instead of a placeholder rig; the third-person player body is still
-invisible. Inventory, entities, combat, audio, and a full save/load cycle still
-need complete checks. On a physical Switch the game boots and runs (owner
-reports), at a poor frame rate; no full-playability claim is made.
+invisible.
+
+On a physical Switch, version 0.5.2 is fully playable: inventory, combat,
+music and sound effects work (owner testing). A full power-cycle save/load test
+is still to do.
 
 Native EGL errors can mask an original managed error when the game's error
 screen creates a second graphics device. Diagnostic hooks log the original

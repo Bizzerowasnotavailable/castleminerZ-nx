@@ -1,127 +1,55 @@
 # castleminerZ-nx
 
-An experimental Nintendo Switch homebrew interoperability and static-AOT
-porting framework for the Xbox Live Indie Games release of **CastleMiner Z**.
+A Nintendo Switch homebrew port of the Xbox Live Indie Games release of
+**CastleMiner Z**, built locally from your own copy of the game.
 
 > [!IMPORTANT]
 > This repository does not contain CastleMiner Z, its executable assemblies,
 > art, audio, or other copyrighted game data. You must supply your own Xbox 360
 > `LIVE`/STFS package. Do not open issues asking for game files.
 
-## Current status
+## Status
 
-**Fully playable on a physical Switch as of 0.5.1 (owner hardware testing,
-November 22, 2026).** With the FNA3D render scale and 1024-sample audio buffers
-the game runs much more smoothly, and with logging turned off
-(`logging = 0`, see below) it feels like a steady 60 fps. It is also playable
-in Eden. CastleMiner Z boots
-to its title screen, enters and loads an offline world, and renders the complete
-first-person scene. Terrain, sky, clouds, water, HUD, hotbar icons and the held
-item draw correctly; movement, the first-person camera, the pause menu and the
-mapped Switch controller input all work. Assets are read directly from the
-user's STFS package and are never copied into the NRO or RomFS.
+**Version 0.5.2 is fully playable on a physical Switch** (owner testing). The
+game reaches its title screen and creates and loads offline worlds. Inventory,
+combat and the rest of the core game loop work.
 
-**Installation is a local source build, not a generic NRO plus a game rip.**
-The NRO embeds processed `CastleMinerZ.exe` and `DNA.Common.dll` that are
-generated from your own package and must match it. Use the
-[package preparation workflow](docs/installation.md) below to build both from
-your package. Do not download the DLLs separately.
+- It runs smoothly. With logging turned off it feels like a steady 60 fps.
+- Music and sound effects play cleanly.
+- With SaltyNX installed, Status Monitor's FPS counter shows the game's frame
+  rate.
 
-Verified on a physical Switch (owner testing, 0.5.1): smooth gameplay,
-inventory, combat and the rest of the core game loop.
-
-Verified in Eden:
-
-- title screen, offline world entry, and loading of existing save data;
-- generated terrain, sky/clouds, water, HUD, hotbar icons, and first-person held
-  items;
-- first-person camera, movement, and pause menu;
-- local Switch profile nickname/picture with UID-scoped storage, no linked
-  Nintendo Account; and
-- mapped controller input (Nintendo labels: A=accept, B=back).
+The game also runs in the Eden emulator, but without audio, because Eden cannot
+play SDL audio.
 
 Known limitations:
 
-- **Player body:** the third-person avatar body is invisible. Xbox avatar assets
-  cannot be shipped; reporting the renderer as `Unavailable` keeps the game's own
-  fallback skeleton, which preserves held-item, eye-point and animation
-  transforms. The local profile supplies nickname/picture metadata only; no Mii
-  geometry is read or rendered. A project-authored placeholder body is future
-  work.
-- **Audio:** FNA/FAudio and the XACT bank loader are linked, and the sound-effect
-  bank is PCM. The 11 streaming entries (music and ambience) are xWMA, which
-  upstream FAudio decodes only through Windows Media Foundation. Without a
-  decoder its mixer called a null pointer, which crashed the game on hardware as
-  soon as the title music started. `patches/faudio` decodes xWMA with FFmpeg's
-  `wmav2` decoder from devkitPro's `switch-ffmpeg` port; anything it cannot open
-  plays as timed silence instead of crashing. On the host,
-  `scripts/test-xact-audio.ps1` plays the game's cues through a live mixer and
-  all 11 xWMA cues are audible. In Eden, `perf.log` shows the mixer producing
-  the title music, but Eden's audren renderer never consumes SDL wave buffers (a
-  standalone SDL tone gets one callback and then blocks), so nothing is audible
-  there. SDL's audio thread runs at priority 0x2A, above the game's threads,
-  instead of SDL's lowest-priority default. On hardware the mixer produces
-  sound, but with 480-sample buffers it was called about 85 times a second for a
-  device that needs 100, and the music was choppy. 0.5.1 uses 1024-sample
-  buffers.
-- **Performance history:** earlier builds ran at about 13–25 fps in the world
-  at full resolution and 17–33 fps with an FNA-level 75% scale (GPU-bound).
-  0.5.1 moved the scale into FNA3D and, per owner hardware testing, runs
-  smoothly; with logging off it feels like 60 fps. Measurements and tools are
-  in [`docs/performance.md`](docs/performance.md).
-- **Behavior note:** brief full-sky white flashes are the game's original
-  lightning, not a rendering fault. Above ground the game flashes the sky white
-  0–3 times, 0.1–0.35 s apart, every 10–39 s, followed by thunder. Each flash
-  lasts one game update, so it stays on screen longer at a low frame rate.
+- **Player body:** the third-person avatar body is invisible, because Xbox
+  avatar assets cannot be shipped. The first-person view, held items and
+  animations are correct.
+- **Offline only:** there is no Xbox Live, so online features and multiplayer
+  are not available. Your local Switch profile stands in for the Xbox gamer
+  (name and picture), and no Nintendo Account is needed.
+- **Lightning:** brief full-sky white flashes are the game's own lightning, not
+  a rendering fault. Above ground there are 0–3 flashes every 10–39 s, followed
+  by thunder.
 
-The project also provides:
+## Install
 
-- a real ARM64 `.nro` built with devkitA64/libnx;
-- recursive STFS package discovery and a read-only package VFS without
-  installing or embedding game assets;
-- a host-side `cmztool` for listing, validating, and privately extracting
-  individual files;
-- a project-owned `CastleMinerZ.XnaCompat` assembly that covers the
-  GamerServices, networking, and avatar surface FNA omits;
-- a deterministic relinker that routes every legacy XNA type and member onto FNA
-  or the compatibility assembly;
-- the full native stack (SDL2 → EGL → switch-mesa GLES 3.0 → FNA3D →
-  MojoShader, plus FAudio with an FFmpeg xWMA decoder) linked into the Mono
-  static-AOT image with no undefined symbols;
-- frame, GC and audio logging and an opt-in sampling profiler for hardware runs
-  ([`docs/performance.md`](docs/performance.md)). All logging can be switched
-  off with `logging = 0` in `sdmc:/switch/castleminerz/config.ini`;
-- ten project-authored replacement effects for the Xbox GPU binaries, with
-  MojoShader GLSL ES 3 translation and interface tests;
-- Xbox cubemap and raw model-buffer byte-order fixes, verified in Eden; and
-- the local-profile integration described above
-  (see [`docs/local-profiles.md`](docs/local-profiles.md)).
-
-The graphics backend is settled: switch-mesa behind SDL2, not deko3d. deko3d
-has no FNA3D driver in any public tree, so using it now would mean writing a
-driver and a shader backend before anything renders. The reasoning and the
-measured package facts are in [`docs/graphics.md`](docs/graphics.md), and the
-gate-by-gate path to a playable build is in
-[`docs/playability.md`](docs/playability.md).
-
-Static analysis of the supplied release established that `CastleMinerZ.exe`
-and `DNA.Common.dll` are IL-only, AnyCPU CLR 2.0 assemblies. CastleMiner Z is an
-XNA 4 XBLIG game; it has no game XEX or PowerPC instruction stream for
-XenonRecomp to translate. The correct static recompilation route is therefore
-managed IL AOT to ARM64 with an XNA compatibility runtime. See
-[`docs/architecture.md`](docs/architecture.md).
-
-## SD-card layout
-
-After installing the [Windows/WSL build prerequisites](docs/installation.md), run:
+You can't download a ready-made NRO. The NRO embeds code compiled from your copy
+of `CastleMinerZ.exe` and `DNA.Common.dll`, so it has to be built on your PC
+from your own package, and it only works with that package. The build PC needs
+Windows with WSL, the .NET 8 SDK and devkitPro. The full prerequisites are in
+[`docs/installation.md`](docs/installation.md).
 
 ```powershell
 ./scripts/prepare-game.ps1 -Package 'C:\Games\my-owned-package' -OutputRoot 'C:\CMZ-private\sd-ready'
 ```
 
-Supply the actual `LIVE`/STFS file, even if it has a long hexadecimal name and
-no extension. The script validates it, privately extracts the two assemblies,
-relinks/trims/AOT-compiles them and produces a **new, complete private SD folder**:
+Pass the `LIVE`/STFS file itself, which often has a long hexadecimal name and no
+extension. Add `-Icon 'C:\path\to\image.png'` to give the game an hbmenu icon.
+The script validates the package, builds the game and writes a new private SD
+folder:
 
 ```text
 sd-ready/
@@ -130,60 +58,58 @@ sd-ready/
   switch/castleminerz/build-manifest.json
 ```
 
-Copy **`switch\castleminerz.nro` and the `switch\castleminerz` folder** to your SD root, or into the SDMC directory
-of the destination Eden installation. Use **File → Open Eden Folder** to locate
-the active Eden data folder; portable installations need not use `%APPDATA%`.
-The destination PC does not need the build tools. Keep existing saves, but move
-old packages out of `switch/castleminerz/game/` so discovery cannot pick one.
-
-With the game/Eden closed, verify the destination after copying:
+Copy `switch\castleminerz.nro` and the `switch\castleminerz` folder to the root
+of your SD card, or into Eden's SDMC folder. Keep your saves, but remove older
+packages from `switch/castleminerz/game/`. To check a copy, close the game and
+run:
 
 ```powershell
-./scripts/verify-game-install.ps1 -SdRoot 'C:\path\to\eden\sdmc'
+./scripts/verify-game-install.ps1 -SdRoot 'E:\'
 ```
 
-The verifier checks SHA-256 hashes of the NRO and the package against the build
-manifest. Do not mix builds: the NRO embeds the processed game assemblies that
-match one specific package. A package-only copy is **not** an installation.
-See [installation and troubleshooting](docs/installation.md) for prerequisites,
-rebuilds and the missing-`DNA.Common.dll` error.
+On the Switch, start the game from hbmenu in **full application mode**: hold R
+while launching an installed game. Do not use the album, because the runtime
+needs the full memory budget.
 
-Assets still stream directly from the unmodified package. The game folder can
-hold your title folder as it came from the rip (`584E07D2/00000002/<file>`); the
-prepared workflow writes that same layout.
+The NRO and the prepared SD folder are **private builds**. They contain code
+compiled from the game, so do not share or publish them. Share this source
+instead.
 
-## Build the Switch bootstrap
+## Settings
 
-This builds the package-discovery bootstrap, **not the playable game**. For the
-game use `prepare-game.ps1`; runtime/graphics probes below are also diagnostics.
+All settings are optional. Put them in `sdmc:/switch/castleminerz/config.ini`:
 
-Requirements:
-
-- devkitPro with devkitA64 and libnx
-- GNU Make
-
-From a devkitPro shell:
-
-```sh
-make -j$(nproc)
+```ini
+logging = 0         ; write no logs at all, which runs smoother (default: logging on)
+audio_buffers = 3   ; audio buffers kept queued, 2-4 (default 4); fewer means lower sound latency
+saltynx = 0         ; do not publish the frame rate to SaltyNX tools (default: on)
 ```
 
-On Windows PowerShell with the standard `C:\devkitPro` installation:
+With logging on, the game writes `host.log`, `perf.log` and `runtime.log` to
+`sdmc:/switch/castleminerz-logs/`. [`docs/performance.md`](docs/performance.md)
+explains them and the optional sampling profiler.
 
-```powershell
-./scripts/build-switch.ps1
-```
+## How it works
 
-If local policy blocks scripts, use a process-scoped override:
+CastleMiner Z is an XNA 4 game. Its `CastleMinerZ.exe` and `DNA.Common.dll` are
+IL-only .NET assemblies, so there is no Xbox machine code to recompile. The
+build relinks them onto [FNA](https://fna-xna.github.io/) and a project-owned
+compatibility assembly, trims them, and AOT-compiles everything to ARM64 with
+mono-nx into a libnx NRO. At runtime:
 
-```powershell
-powershell -ExecutionPolicy Bypass -File ./scripts/build-switch.ps1
-```
+- Assets stream straight from the unmodified STFS package through a read-only
+  filesystem. Nothing is extracted to the SD card.
+- Graphics run on SDL2, switch-mesa (OpenGL ES 3) and FNA3D. Ten
+  project-authored effects replace the Xbox shader binaries. The scene renders
+  at 75% resolution and is scaled to 1280×720.
+- Audio runs on FAudio (XACT), with FFmpeg decoding the xWMA music. A
+  project-owned SDL audio backend keeps the sound output fed.
 
-The output is `castleminerz-nx.nro`. Generated binaries are intentionally
-gitignored.
+More detail is in [`docs/architecture.md`](docs/architecture.md),
+[`docs/graphics.md`](docs/graphics.md), [`docs/toolchain.md`](docs/toolchain.md)
+and [`docs/local-profiles.md`](docs/local-profiles.md).
 
-## Build host tools and tests
+## For developers
 
 ```sh
 cmake -S . -B build-host -DCMAKE_BUILD_TYPE=Release
@@ -191,112 +117,38 @@ cmake --build build-host
 ctest --test-dir build-host --output-on-failure
 ```
 
-Examples:
+This builds and tests `cmztool`, which lists, verifies and privately extracts
+package files (`cmztool list|verify|extract <package> ...`). Keep extracted
+files in the ignored `private/` folder.
 
-```sh
-cmztool list /path/to/package
-cmztool verify /path/to/package
-cmztool extract /path/to/package 584E07D1/Content/LoadScreen.xnb private/LoadScreen.xnb
-```
+- **Dependencies:** mono-nx, FNA, FNA3D, FAudio and .NET for WSL are pinned in
+  `dependencies.lock.json`. `scripts/setup-dependencies.ps1` fetches them
+  outside the repository.
+- **Native libraries:** `scripts/build-native-dependencies.ps1` builds FNA3D
+  and FAudio. Rerun it after changing anything under `patches/fna3d`,
+  `patches/mojoshader` or `patches/faudio`.
+- **Checks:** run `scripts/check-repository.ps1` and the `scripts/test-*.ps1`
+  scripts.
+- **Bootstrap:** `make` at the repository root, or `scripts/build-switch.ps1`,
+  builds only the package-discovery bootstrap, a diagnostic NRO. It does not
+  build the game.
 
-`private/` is ignored. Never commit extracted files.
+[`docs/toolchain.md`](docs/toolchain.md) describes the full build pipeline.
 
-## Managed runtime dependencies
+## Documentation
 
-The Mono AOT/FNA work uses pinned sources and release archives kept outside the
-repository. On Windows, the validated workflow combines devkitPro MSYS and WSL:
-
-```powershell
-./scripts/setup-dependencies.ps1 -InstallWslDotnet
-./scripts/test-mono-runtime.ps1
-./scripts/build-native-dependencies.ps1
-./scripts/build-runtime-probe.ps1
-./scripts/build-graphics-probe.ps1
-./scripts/audit-managed-compatibility.ps1 -Assembly private/CastleMinerZ.exe,private/DNA.Common.dll
-./scripts/relink-managed-assemblies.ps1 -Assembly private/CastleMinerZ.exe,private/DNA.Common.dll
-./scripts/test-managed-relinker.ps1
-```
-See [`docs/toolchain.md`](docs/toolchain.md) for the exact host split, hashes,
-outputs, and limitations. These smoke builds contain no CastleMiner Z code or
-assets.
-
-`castleminerz-graphics-probe.nro` is the hardware test for the graphics stack
-alone: it prints the SDL platform, the GL vendor/renderer/version and the
-FNA3D device result, then clears and presents a moving colour until `+` is
-pressed. If it presents, the SDL2/Mesa/FNA3D path is proven and the remaining
-graphics work is game-side.
-
-## Research notes
-
-- [`docs/analysis.md`](docs/analysis.md) records reproducible format and managed
-  metadata findings without containing decompiled game code.
-- [`docs/architecture.md`](docs/architecture.md) explains where XenonRecomp,
-  XenosRecomp, and native Ghidra analysis do or do not apply and describes the
-  Mono AOT/FNA path.
-- [`docs/toolchain.md`](docs/toolchain.md) documents the pinned WSL/devkitPro
-  runtime and native dependency builds.
-- [`docs/installation.md`](docs/installation.md) covers preparing your own
-  package, transferring the complete private build, and troubleshooting.
-- [`docs/graphics.md`](docs/graphics.md) records the deko3d-versus-switch-mesa
-  decision and the evidence behind it.
-- [`docs/playability.md`](docs/playability.md) is the gate-by-gate plan to a
-  running game, with exit criteria.
-- [`docs/roadmap.md`](docs/roadmap.md) tracks the remaining work to gameplay.
-- [`docs/performance.md`](docs/performance.md) explains `perf.log`, the
-  sampling profiler and the measurements so far.
-
-## Distributing builds
-
-`castleminerz.nro` is a **private build**, not a self-contained release. The
-full game build AOT-compiles the user's `CastleMinerZ.exe` and `DNA.Common.dll`
-into the NRO and reads the original STFS package at runtime. Publishing or
-redistributing that NRO, its generated AOT objects, or the relinked managed
-assemblies would redistribute copyrighted game code and assets. Share the
-source, scripts, and documentation instead; each user must supply their own
-package and build locally.
-
-For personal use, transfer the output of `prepare-game.ps1`: the NRO (which
-embeds the matching processed assemblies), your unmodified package in its title
-folder, and a build manifest:
-
-```text
-sdmc:/switch/castleminerz.nro
-sdmc:/switch/castleminerz/game/584E07D2/00000002/<package file>
-sdmc:/switch/castleminerz/build-manifest.json
-```
-
-The NRO embeds a default runtime config and creates
-`sdmc:/switch/castleminerz-logs/` automatically, so no extra config file is
-required. An `aot_config.ini` in that folder overrides the embedded defaults for
-debugging. A boot without the override was verified in Eden **with the required
-package and processed assemblies still present**; this was not an empty-SD or
-package-only installation test.
-
-Logging (`host.log`, `perf.log` and `runtime.log`) is on by default. To turn
-it off without rebuilding the NRO, create `sdmc:/switch/castleminerz/config.ini`:
-
-```ini
-[logging]
-logging = 0
-```
-
-With logging off, the NRO writes no logs and does not create the log directory.
-Any other value, or no file, leaves logging on. Details are in
-[`docs/performance.md`](docs/performance.md#logging-toggle).
-
-Version **0.5.1** renders at a **75% scale**. FNA3D draws into a 960×540 buffer
-and scales it to the 1280×720 screen, while the game keeps its 1280×720 layout.
-It also uses **1024-sample audio buffers** against the choppy music. Both
-changes respond to hardware measurements of earlier builds. On hardware
-it runs smoothly and is fully playable (owner testing); see the
-[changelog](CHANGELOG.md).
-
-On hardware, launch in **full application mode** (hold R while starting an
-installed game to open hbmenu), not from the album. The Mono runtime needs the
-full memory budget and refuses applet mode.
-
-On hardware the NRO boots (owner reports); audio, frame rate and full gameplay
-are still being validated there. Eden cannot play SDL audio.
+- [`CHANGELOG.md`](CHANGELOG.md): version history.
+- [`JOURNEY.md`](JOURNEY.md): the project log, measurements and open work.
+- [`docs/installation.md`](docs/installation.md): preparing, installing and
+  troubleshooting.
+- [`docs/performance.md`](docs/performance.md): `perf.log`, the profiler and
+  hardware findings.
+- [`docs/architecture.md`](docs/architecture.md),
+  [`docs/graphics.md`](docs/graphics.md),
+  [`docs/toolchain.md`](docs/toolchain.md) and
+  [`docs/analysis.md`](docs/analysis.md): design, decisions and format notes.
+- [`docs/playability.md`](docs/playability.md) and
+  [`docs/roadmap.md`](docs/roadmap.md): status by area and remaining work.
 
 ## Legal
 

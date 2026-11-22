@@ -6,9 +6,10 @@ it locally from their own package with `scripts/prepare-game.ps1` (see
 [`docs/installation.md`](docs/installation.md)). Measurements and reasoning are
 in [`JOURNEY.md`](JOURNEY.md) and [`docs/performance.md`](docs/performance.md).
 
-## [0.5.2] - unreleased (awaiting hardware test)
+## [0.5.2] - 2026-11-22
 
-Built as perf-test-7 for the owner's hardware test. Not pushed until approved.
+Tested on the owner's Switch as perf-test-7, and all checks passed (owner
+report): the music plays smoothly, and Status Monitor shows the frame rate.
 
 ### Fixed
 
@@ -34,8 +35,9 @@ Built as perf-test-7 for the owner's hardware test. Not pushed until approved.
 
 ## [0.5.1] - 2026-11-22
 
-Follow-up to the perf-test-4 and perf-test-5 hardware measurements. The build
-of this version (perf-test-6) is **not yet tested on hardware**.
+Follow-up to the perf-test-4 and perf-test-5 hardware measurements. Tested on
+the owner's Switch as perf-test-6: fully playable and smooth, and it feels like
+60 fps with logging off. The audio was still choppy; 0.5.2 fixed that.
 
 ### Changed
 

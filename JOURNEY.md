@@ -12,19 +12,24 @@ Build a playable Nintendo Switch port of CastleMiner Z using Xbox 360 GOD/STFS p
 
 ## Current Snapshot (November 2026)
 
-- **Status:** 0.5.1 is fully playable on a physical Switch (owner hardware
-  testing, November 22, 2026). It runs smoothly and feels like 60 fps with
-  logging off, and inventory, combat and the rest of the core loop work. The
-  audio is still choppy (see "Open tasks" below). It is also playable in Eden.
-  This is not a generic NRO-plus-rip release.
+- **Status:** 0.5.2 is fully playable on a physical Switch (owner hardware
+  testing, November 22, 2026).
+  - It runs smoothly and feels like 60 fps with logging off.
+  - Inventory, combat and the rest of the core loop work.
+  - The music plays smoothly.
+  - Status Monitor shows the frame rate through SaltyNX.
+  - It is also playable in Eden. This is not a generic NRO-plus-rip release.
 - **Build:** private ARM64 NRO produced by the full relink/AOT pipeline.
   - Confirmed booting on hardware: SHA-256
     `31E28CFA247CECC56CB78B2ED456885C1A2207B5D267360847F32F33C3AD43EF`.
   - First build with performance instrumentation:
     `1C122A1081A31C131BC952E24B1B123B3169AD33C25B676B0F575391AA3A3053`.
-  - Current build, version 0.5.1 (perf-test-6, November 22):
+  - Version 0.5.1 (perf-test-6, November 22):
     `1BAC748C16DFEE0AC97FA6502D8551EEC79E130567168486F6781E71587708B9`.
-    Tested on hardware by the owner: fully playable.
+    Tested on hardware by the owner: fully playable, but the audio was choppy.
+  - Current build, version 0.5.2 (perf-test-7, November 22):
+    `C7AFD06F32B52D7F064A69C8C5D760BD68F0E2FCF0C6C4501ABDBF23B5F1D3D1`.
+    Tested on hardware by the owner, and all checks passed.
 - **Verified:** title screen, offline world entry and save load, terrain,
   sky/clouds, water, HUD, hotbar icons, first-person held item, pause menu,
   movement/camera, mapped controller input, local-profile identity, and
@@ -37,10 +42,6 @@ Build a playable Nintendo Switch port of CastleMiner Z using Xbox 360 GOD/STFS p
   folder, and a SHA-256 manifest. It no longer
   assumes the user already has extracted/relinked files or this PC's Eden data.
 - **Open:**
-  - choppy audio on hardware, which 0.5.1's 1024-sample buffers improved but did
-    not fix (task 1 under "Open tasks");
-  - FPS readout for SaltyNX-based tools such as the Status Monitor overlay
-    (task 2 under "Open tasks");
   - audio in Eden, because the emulator's audren renderer never consumes SDL
     buffers;
   - the invisible third-person avatar body;
@@ -128,17 +129,15 @@ Build a playable Nintendo Switch port of CastleMiner Z using Xbox 360 GOD/STFS p
 #### Gameplay Features
 - [x] Inventory system testing (owner hardware test, 0.5.1)
 - [x] Combat system validation (owner hardware test, 0.5.1)
-- [ ] Audio system testing (XACT/FAudio integration). The PCM SFX bank is
-      supported. The 11 xWMA streaming entries are decoded with FFmpeg's
-      `wmav2` (`patches/faudio/0002`); a decoder of any kind fixed the hardware
-      crash. Eden's audren renderer blocks all SDL playback. On hardware the
-      music plays but was choppy with 480-sample buffers; 0.5.1's 1024-sample
-      buffers are untested.
+- [x] Audio system testing (XACT/FAudio integration). The PCM SFX bank and the
+      11 xWMA streaming entries (FFmpeg `wmav2`, `patches/faudio/0002`) play on
+      hardware. Music is smooth since 0.5.2's project SDL audio backend (owner
+      hardware test). Eden's audren renderer blocks all SDL playback.
 - [ ] Camera/recording for item placement
 
 #### Platform Integration
-- [x] Hardware validation (physical Switch testing): 0.5.1 is fully playable
-      (owner hardware test). Audio is still choppy (open task 1).
+- [x] Hardware validation (physical Switch testing): 0.5.2 is fully playable
+      with smooth audio (owner hardware test).
 - [ ] Controller mapping validation on hardware
 - [ ] Profile selector and save/load on hardware
 
@@ -150,19 +149,19 @@ Build a playable Nintendo Switch port of CastleMiner Z using Xbox 360 GOD/STFS p
 - Nothing blocked. A full power-cycle save/load test is still to do.
 
 #### Hardware Dependencies
-- None. 0.5.1 is fully playable on the owner's Switch.
+- None. 0.5.2 is fully playable on the owner's Switch.
 
 ---
 
 ## Current Runtime State
 
-### Open tasks (requested November 22, 2026, after the 0.5.1 hardware test)
+### Audio fix and SaltyNX frame rate, 0.5.2 (November 22, 2026)
 
-**Workflow.** Build a test NRO and hand it to the owner. The owner tests it on
-the Switch. Push to GitHub only after the owner approves. Nothing from these
-tasks is pushed before that.
+The owner asked for both after the 0.5.1 hardware test. The workflow was to
+build a test NRO, have the owner test it on the Switch, and push only after the
+owner approved. perf-test-7 passed (see Status below).
 
-1. **Fix choppy audio.** 0.5.1 made the game smooth, but the audio is still
+1. **Fix choppy audio.** 0.5.1 made the game smooth, but the audio was still
    choppy.
    - **Evidence:** at 480 samples (perf-test-4/5), the mixer callback ran about
      85 times per second for a device that plays 100 buffers per second. A
@@ -244,25 +243,19 @@ tasks is pushed before that.
    `logging`, `audio_buffers` (2-4, default 4) and `saltynx`. The parser
    passed 13 host cases.
 
-**Status:** built as perf-test-7 (version 0.5.2), NRO SHA-256
-`C7AFD06F32B52D7F064A69C8C5D760BD68F0E2FCF0C6C4501ABDBF23B5F1D3D1`, and handed
-to the owner for a hardware test.
+**Status: done.** Built as perf-test-7 (version 0.5.2), NRO SHA-256
+`C7AFD06F32B52D7F064A69C8C5D760BD68F0E2FCF0C6C4501ABDBF23B5F1D3D1`.
 - The linked ELF contains `__wrap_SWITCHAUDIO_bootstrap` and none of SDL's
   `SWITCHAUDIO_*` code.
 - All six host regression scripts pass.
-- Committed locally, not pushed.
-- Neither change has run on hardware yet.
+- The owner tested it on the Switch, and all checks passed: the music is
+  smooth, Status Monitor shows the frame rate, and sound-effect latency was not
+  a problem.
+- Pushed after the owner approved. No perf.log from this run was shared, so the
+  `underruns=` counter has not been read on hardware yet.
 
-**Owner checks for perf-test-7:**
-
-1. **Audio:** is the music smooth? In perf.log, the `audio` field should show
-   `underruns=0` in play, `queue=4x1024`, and about 234 callbacks per 5 s.
-2. **SaltyNX:** with SaltyNX and Status Monitor installed, does Status
-   Monitor's FPS counter show a frame rate in game? perf.log has a
-   `# saltynx:` line with the shared-memory offset, or the reason it is
-   absent.
-3. **Latency:** if sound effects feel late, try `audio_buffers = 3` in
-   `config.ini` (64 ms instead of 85 ms).
+If sound effects ever feel late, `audio_buffers = 3` in `config.ini` lowers the
+queue from 85 ms to 64 ms.
 
 ### Hardware performance and 0.5.1 (November 22, 2026)
 
@@ -314,6 +307,11 @@ to the owner for a hardware test.
      check whether the music is still choppy.
   2. Delete `switch/castleminerz-logs`, then run again with `logging = 0`. It
      should boot without recreating the folder.
+- **Outcome (owner test):**
+  - The menus are intact, and the game is fully playable and smooth.
+  - It feels like 60 fps with logging off.
+  - The music was still choppy. That was fixed in 0.5.2 (entry above).
+  - No perf.log was shared.
 
 ### Hardware boot failure analysis (November 21, 2026)
 
@@ -448,35 +446,32 @@ to the owner for a hardware test.
 ### Immediate Tasks
 0. **Installation Validation**: Exercise package preparation on a newly
    provisioned PC, verify the transferred manifest and launch on a second PC
-1. **Hardware Validation**: Run perf-test-6 (0.5.1) on the Switch, using the
-   checks in the November 22 entry. Then confirm rendering, input, audio,
-   profile selection and save/load.
-2. **Audio System**: The WMA policy is settled: FFmpeg decodes it, and anything
-   it cannot open plays as silence. Confirm that 1024-sample buffers stop the
-   choppy music, and validate the PCM SFX on hardware.
-3. **Player Visibility**: Prototype a project-authored placeholder body driven by
-   the fallback skeleton (no Xbox avatar assets)
-4. **Inventory System**: Complete inventory implementation and testing
-5. **Combat System**: Validate combat mechanics and entity interactions
-6. **Save/Load Cycle**: Confirm saves survive a full power cycle and remain
+1. **Save/Load Cycle**: Confirm saves survive a full power cycle and remain
    profile-isolated
+2. **Player Visibility**: Prototype a project-authored placeholder body driven by
+   the fallback skeleton (no Xbox avatar assets)
+3. **Measurements (optional)**: A 0.5.2 `perf.log` from the Switch would
+   confirm `underruns=0` and give in-world frame times with the FNA3D render
+   scale.
 
 ### Platform Validation
-1. **Hardware Testing**: Boots and runs on the owner's Switch. A full gameplay
-   pass is still to do.
+1. **Hardware Testing**: Done. 0.5.2 is fully playable on the owner's Switch.
 2. **Controller Validation**: Test all button mappings on hardware
-3. **Profile Testing**: Validate account selector and save/load
-4. **Performance**: Measured on retail hardware (`perf.log`): the game is
-   GPU-bound. Next, compare 0.5.1's FNA3D render scale against the earlier
-   measurements.
+3. **Profile Testing**: Validate the account selector and save/load across
+   power cycles
+4. **Performance**: The game is GPU-bound (perf-test-4/5 measurements). Since
+   0.5.1 it runs smoothly and feels like 60 fps with logging off (owner
+   report).
 
 ### Completion Criteria
 - [ ] Save/load survives full power cycle
 - [ ] Player is visible (not just placeholder)
-- [ ] All gameplay features (inventory, combat, audio) functional. Inventory
-      and combat work on hardware; audio is still choppy.
-- [x] Hardware validation completed (0.5.1, owner test)
-- [ ] Frame rate stable at 720p/540p on retail hardware
+- [x] All gameplay features (inventory, combat, audio) functional (owner
+      testing, 0.5.2)
+- [x] Hardware validation completed (0.5.2, owner test)
+- [x] Frame rate stable at 720p/540p on retail hardware. Owner report: smooth,
+      and it feels like 60 fps with logging off. No 0.5.x perf.log measurement
+      yet.
 
 ---
 
@@ -505,11 +500,14 @@ to the owner for a hardware test.
   `logging = false`. Only then does it skip the directory. An NRO without the
   quiet config, such as the runtime probe, keeps the normal config and the
   directory. An SD `aot_config.ini` override still takes precedence.
-- **Code:** `logging_enabled()` and the config choice in
-  `runtime-probe/native/main.cpp`, the `g_enabled` checks in `perf_monitor.cpp`,
-  and both configs written by `scripts/build-game.ps1`.
-- **Status:** built into perf-test-6 (0.5.1). The parser was tested on the host
-  with ten config variants. Not yet run on hardware with either setting.
+- **Code:**
+  - `read_host_config()` and the config choice in
+    `runtime-probe/native/main.cpp`. It was `logging_enabled()` in 0.5.1; 0.5.2
+    added the `audio_buffers` and `saltynx` keys.
+  - The `g_enabled` checks in `perf_monitor.cpp`.
+  - Both configs, written by `scripts/build-game.ps1`.
+- **Status:** in use since 0.5.1. The owner plays with logging off, which feels
+  like 60 fps. The parser passes 13 host cases.
 
 ## Technical Details
 
@@ -568,11 +566,12 @@ Environment Variables:
 - **Limitations**: Emulator does not model Switch memory limits or applet constraints
 
 ### Physical Hardware Target
-- **Status**: boots and runs on the owner's console (firmware 22.5.0). It runs
-  at 13–25 fps in the world at full resolution and 17–33 fps with a 75% scale.
-- **Focus**: Frame rate optimization, memory usage, input responsiveness
-- **Risk**: the game is GPU-bound, not CPU-bound (the main thread waits for the
-  GPU and uses 26–53% CPU), so rendering cost decides the frame rate
+- **Status**: 0.5.2 is fully playable on the owner's console (firmware
+  22.5.0). It runs smoothly and feels like 60 fps with logging off. Builds
+  before the FNA3D render scale ran at 13–33 fps; see `docs/performance.md`.
+- **Focus**: memory usage, the invisible avatar body, power-cycle save testing
+- **Risk**: the game is GPU-bound, not CPU-bound, so rendering cost decides the
+  frame rate. Heavier scenes are the first place to look if it ever drops.
 
 ---
 
@@ -654,9 +653,8 @@ Each gate defines concrete pass/fail conditions:
 - **Audio in Eden**: Eden's audren renderer never consumes SDL wave buffers, so
   no SDL-based game can produce sound in the emulator. The linked FAudio build
   plays the PCM SFX and decodes the 11 streaming WMA entries with FFmpeg.
-- **Hardware Testing**: boots and runs, and perf.log measurements exist. Music
-  was choppy with 480-sample buffers. Full gameplay validation has not been
-  done.
+- **Hardware Testing**: 0.5.2 is fully playable with smooth audio (owner
+  testing). A full power-cycle save/load test has not been done.
 - **Runtime probe build**: `build-runtime-probe.ps1` copies only part of the
   shared host sources and predates the performance monitor, so it cannot build
   the current host. The game build is unaffected.
@@ -664,9 +662,9 @@ Each gate defines concrete pass/fail conditions:
   (`0xc0000409`) occurred after an extended session that had rendered normally;
   it is not reproduced reliably and is treated as an emulator issue until
   isolated.
-- **Performance**: GPU-bound on retail hardware, at 13–33 fps in the world
-  depending on scene and render scale. Eden measurements are not
-  representative.
+- **Performance**: GPU-bound on retail hardware. With the 75% FNA3D render
+  scale (0.5.1+) it runs smoothly, and it feels like 60 fps with logging off
+  (owner report). Eden measurements are not representative.
 - **Lightning Flashes**: brief full-sky white flashes are the game's original
   `drawLightning` storm behavior (10–40 s cadence above ground), not a corrupted
   skybox.
@@ -675,8 +673,7 @@ Each gate defines concrete pass/fail conditions:
 - deko3d FNA3D driver implementation (post-playable optimization)
 - Full multiplayer networking (single-player focus)
 - Complete graphics/effect parity validation
-- Inventory, combat, and full power-cycle save/load validation
-- Hardware audio validation (the WMA music policy is settled: FFmpeg decoding)
+- Full power-cycle save/load validation
 
 ---
 
@@ -686,13 +683,11 @@ Z on Nintendo Switch using static-AOT Mono and FNA. In Eden the game boots to th
 title screen, loads an offline world, and renders terrain, sky, water, HUD,
 hotbar icons, and the first-person held item correctly; movement, camera, pause
 menu, mapped controller input, local-profile identity, and UID-scoped saves work.
-On a physical Switch it boots and runs. There it is GPU-bound at a low frame
-rate, and the music was choppy. The main remaining challenges are frame rate
-and audio on hardware, the invisible third-person avatar body, and full
-gameplay validation on hardware.
+On a physical Switch, version 0.5.2 is fully playable. It runs smoothly (it
+feels like 60 fps with logging off), the music plays cleanly, and Status
+Monitor shows its frame rate. The main remaining work is the invisible
+third-person avatar body and a full power-cycle save/load test.
 
-**Status**: Playable in Eden with correct rendering. It boots and runs on
-hardware at 13–33 fps. 0.5.1 (FNA3D render scale and 1024-sample audio) awaits
-its hardware run.
-**Next Focus**: the perf-test-6 hardware run, frame rate, audio on hardware,
-and a project-authored avatar body.
+**Status**: Fully playable on hardware (0.5.2, owner testing) and in Eden.
+**Next Focus**: a project-authored avatar body, power-cycle save testing, and
+memory profiling.

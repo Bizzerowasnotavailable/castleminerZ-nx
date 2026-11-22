@@ -89,15 +89,15 @@ XBLIG package.
 
 ## M4 — offline gameplay
 
-- [ ] Implement XACT global settings, sound banks, wave banks, and streaming.
-  PCM SFX banks are linked. The 11 xWMA streaming entries are decoded with
-  FFmpeg's `wmav2` (`patches/faudio`), and anything FFmpeg cannot open plays as
-  silence of the correct length. The hardware crash when the title music
-  started went away once these voices had a decoder (silence at first, FFmpeg
-  now). The host mixer check plays every cue. On hardware the music
-  plays but was choppy with 480-sample buffers. 0.5.1 uses 1024-sample buffers,
-  which have not been tested on hardware yet. Eden's audren renderer cannot play
-  any SDL audio, so audio can only be validated on hardware.
+- [x] Implement XACT global settings, sound banks, wave banks, and streaming.
+  - PCM SFX banks are linked.
+  - The 11 xWMA streaming entries are decoded with FFmpeg's `wmav2`
+    (`patches/faudio`). Anything FFmpeg cannot open plays as silence of the
+    correct length.
+  - The project's SDL audio backend (0.5.2) keeps the renderer fed. Music is
+    smooth on hardware (owner testing).
+  - Eden's audren renderer cannot play any SDL audio, so audio is validated on
+    hardware.
 - [x] Map the selected local Switch profile's nickname, picture and UID-scoped
   storage onto the offline gamer APIs without requiring a Nintendo Account.
 - [ ] Validate profile selection and save/load on hardware; implement real
@@ -110,7 +110,11 @@ XBLIG package.
 - [x] Enter an offline world in Eden and render generated terrain, sky, water,
   HUD, hotbar icons and held items.
 - [ ] Validate chunk workers, inventory, entities, combat, saving, and loading.
-- [ ] Profile memory and frame time on retail-frequency Switch hardware.
+  Inventory, combat and the core loop work on hardware (owner testing); a full
+  power-cycle save/load test is still to do.
+- [ ] Profile memory and frame time on retail-frequency Switch hardware. Frame
+  time is measured (`perf.log`, see `docs/performance.md`); memory is not yet
+  profiled.
 
 ## M5 — compatibility and multiplayer
 

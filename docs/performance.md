@@ -59,7 +59,7 @@ under a frame.
   `perf.log` shows the size SDL actually granted. A device that keeps up runs
   about 234 callbacks per 5-second interval at 1024 samples, or 500 at 480.
 
-### Audio backend (0.5.2, awaiting hardware test)
+### Audio backend (0.5.2)
 
 Larger buffers alone did not stop the choppy audio, because the gaps come
 from SDL 2.28.5's Switch backend. It keeps two wave buffers. After queuing one,
@@ -76,7 +76,8 @@ frame. The disassembly of the linked `libSDL2.a` matches the source.
 - A slow mixer callback or a late wake-up adds latency instead of a gap. That
   is at most 85 ms with 4 x 1024 samples, or 64 ms with `audio_buffers = 3`.
 
-In `perf.log`, `underruns=0` during play means the device never ran dry.
+In `perf.log`, `underruns=0` during play means the device never ran dry. On the
+owner's Switch the music plays smoothly with this backend (perf-test-7).
 
 Eden reports no thread CPU time, so `main_cpu` and `threads` read 0% there.
 
@@ -124,7 +125,7 @@ saltynx = 0         ; do not publish the frame rate to SaltyNX tools
 Fewer audio buffers lower the latency of sound effects (21 ms per buffer) and
 leave less room for a slow mixer callback. Values outside 2-4 are ignored.
 
-## SaltyNX frame rate (0.5.2, awaiting hardware test)
+## SaltyNX frame rate (0.5.2)
 
 Status Monitor's FPS counter normally gets its numbers from SaltyNX's NX-FPS
 plugin, which hooks a retail game's present calls from inside the game process.
@@ -139,7 +140,8 @@ NX-FPS does. This works with logging on or off.
 
 Without SaltyNX the port does not exist and nothing else changes. With logging
 on, `perf.log` has a `# saltynx:` line: the shared-memory offset in use, or the
-reason there is none.
+reason there is none. On the owner's Switch, Status Monitor shows the frame rate
+(perf-test-7).
 
 ## Sampling profiler (opt-in)
 
@@ -205,16 +207,14 @@ figures below are for in-world play after loading:
 - **Audio was starved.** With 480-sample buffers the mixer ran 426–429
   callbacks per 5 s, about 85 per second for a device that needs 100. Each
   callback took about 0.3–0.5 ms on average, so the audio thread had CPU time to
-  spare but was not scheduled often enough. The owner reported choppy music.
+  spare. The device ran dry because SDL's Switch backend refilled it late (see
+  "Audio backend (0.5.2)" above). The owner reported choppy music.
 
-**Checks for perf-test-6 (0.5.1).**
+**Later owner tests.** No `perf.log` came back from these runs, so the table
+above is still the latest measurement.
 
-- The menus fill the screen.
-- The `# audio: device` line reports 1024 samples, with about 234 callbacks per
-  interval.
-- Compare the in-world frame time against the table at a similar primitive
-  count.
-- For a second run, set `logging = 0` and first delete
-  `switch/castleminerz-logs`. The game should boot without recreating the
-  folder. Existing logs are never deleted. With no log, this run can only be
-  judged by feel.
+- **perf-test-6 (0.5.1, FNA3D render scale):** the menus are intact and the game
+  is fully playable and smooth. With logging off it feels like 60 fps. The audio
+  was still choppy.
+- **perf-test-7 (0.5.2, project audio backend and SaltyNX block):** the music
+  plays smoothly, and Status Monitor shows the frame rate.

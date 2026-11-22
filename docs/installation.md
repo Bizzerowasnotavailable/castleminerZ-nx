@@ -146,10 +146,9 @@ turns it off; the NRO then writes no logs and does not create the log
 directory. See [`performance.md`](performance.md#logging-toggle).
 
 On Switch, launch through hbmenu in **full application mode** (hold R while
-starting an installed game), not album/applet mode. The game boots on a
-physical Switch (owner reports); frame rate, audio and full gameplay are still
-being validated there, and playable Eden results do not establish them. See the
-[README limitations](../README.md#current-status).
+starting an installed game), not album/applet mode. Version 0.5.2 is fully
+playable on a physical Switch (owner testing). See the
+[README status and limitations](../README.md#status).
 
 ## If the game fails to start
 
@@ -171,9 +170,9 @@ being validated there, and playable Eden results do not establish them. See the
 
 `prepare-game.ps1 -DependenciesReady` builds the current layout (processed
 assemblies embedded in the NRO, package in its GOD-style folder) end to end on
-the build PC. Its output passes `verify-game-install.ps1`, runs in Eden, and
-builds of this layout have booted on a physical Switch (owner reports, November
-2026). Preparation on a newly provisioned build PC has not been tested.
+the build PC. Its output passes `verify-game-install.ps1`, runs in Eden, and is
+fully playable on a physical Switch (owner testing, November 2026). Preparation
+on a newly provisioned build PC has not been tested.
 
 ## Regression tests
 
