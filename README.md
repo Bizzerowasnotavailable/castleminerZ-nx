@@ -27,6 +27,9 @@ generated from your own package and must match it. Use the
 [package preparation workflow](docs/installation.md) below to build both from
 your package. Do not download the DLLs separately.
 
+Verified on a physical Switch (owner testing, 0.5.1): smooth gameplay,
+inventory, combat and the rest of the core game loop.
+
 Verified in Eden:
 
 - title screen, offline world entry, and loading of existing save data;
