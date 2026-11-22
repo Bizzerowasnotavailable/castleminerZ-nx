@@ -50,9 +50,16 @@ function Invoke-SwitchCMake {
         "-DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF $optionText; " +
         "cmake --build build-switch --parallel 4"
 
+    # cmake and gcc report progress and warnings on stderr. Windows PowerShell
+    # turns that into a terminating error under Stop, so only the exit code
+    # decides success here (as for the NRO link in build-game.ps1).
+    $previousPreference = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
     & $bash -lc $command
-    if ($LASTEXITCODE -ne 0) {
-        throw "Switch dependency build failed in $Source"
+    $buildExit = $LASTEXITCODE
+    $ErrorActionPreference = $previousPreference
+    if ($buildExit -ne 0) {
+        throw "Switch dependency build failed in $Source (exit $buildExit)"
     }
 }
 

@@ -16,9 +16,9 @@ extern "C" {
 typedef void (*CmzPerfLogFn)(const char* line);
 
 // Call once on the main thread before Mono starts. `enabled` comes from the
-// SD card config (default on); when off, host/perf logging and the perf threads
-// are skipped. Never fails: problems are written to the host log and the
-// affected statistics are left out.
+// SD card config (default on); when off, the perf threads, perf.log, notes and
+// the FNA3D call accounting are skipped. Never fails: problems are written to
+// the host log and the affected statistics are left out.
 void cmz_perf_initialize(CmzPerfLogFn host_log, bool enabled);
 
 // Installs the Mono profiler callbacks (GC pauses, managed thread start, name

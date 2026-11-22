@@ -5,6 +5,7 @@ param(
     [string]$Workspace = (Join-Path $env:LOCALAPPDATA 'Temp\opencode\castleminerz-deps'),
     [string]$DevkitPro = 'C:\devkitPro',
     [string]$CmzTool = '',
+    [string]$Icon = '',
     [switch]$DependenciesReady
 )
 
@@ -20,6 +21,12 @@ $OutputRoot = [IO.Path]::GetFullPath($OutputRoot)
 $Package = (Resolve-Path -LiteralPath $Package -ErrorAction Stop).ProviderPath
 if (-not (Test-Path -LiteralPath $Package -PathType Leaf)) {
     throw '-Package must name a single LIVE/STFS package file, not a directory.'
+}
+if (-not [string]::IsNullOrWhiteSpace($Icon)) {
+    $Icon = (Resolve-Path -LiteralPath $Icon -ErrorAction Stop).ProviderPath
+    if (-not (Test-Path -LiteralPath $Icon -PathType Leaf)) {
+        throw '-Icon must name an image file.'
+    }
 }
 
 function Test-InDirectory {
@@ -145,7 +152,7 @@ function Get-GodFolderPath {
 $godRelative = Get-GodFolderPath $Package
 
 & (Join-Path $PSScriptRoot 'build-game.ps1') -ManagedSource $originals `
-    -Workspace $Workspace -DevkitPro $DevkitPro -OutputDirectory $buildOutput
+    -Workspace $Workspace -DevkitPro $DevkitPro -OutputDirectory $buildOutput -Icon $Icon
 
 $nro = Join-Path $buildOutput 'castleminerz.nro'
 if (-not (Test-Path -LiteralPath $nro -PathType Leaf)) {

@@ -53,6 +53,11 @@ namespace {
 
 constexpr const char* kLogPath = "sdmc:/switch/castleminerz-logs/host.log";
 constexpr const char* kPrefPath = "sdmc:/switch/castleminerz/";
+// mono-nx settings embedded by build-game.ps1. The quiet variant redirects no
+// stdio to runtime.log and turns mono-nx's diagnostics off; it is used when the
+// SD card config turns logging off.
+constexpr const char* kRomfsConfigPath = "romfs:/aot_config.ini";
+constexpr const char* kQuietRomfsConfigPath = "romfs:/aot_config_quiet.ini";
 
 std::FILE* g_log = nullptr;
 
@@ -83,13 +88,14 @@ bool ensure_directory(const char* path) {
     return mkdir(path, 0777) == 0;
 }
 
-// sdmc:/switch/castleminerz/config.ini may turn host and performance logging
-// off:
+// sdmc:/switch/castleminerz/config.ini may turn all logging (host.log,
+// perf.log and mono-nx's runtime.log) off:
 //   [logging]
-//   logging=0
-// Missing file, an unreadable key, or any value other than 0 leaves logging on
-// (the default). The check is done before any log directory is created so a
-// disabled build touches the SD card as little as possible.
+//   logging = 0
+// Spaces around '=' are optional and the key is case-insensitive. A missing
+// file, a missing key, or any value that does not start with 0 leaves logging
+// on (the default). The check is done before any log directory is created so
+// a disabled build touches the SD card as little as possible.
 bool logging_enabled() {
     std::FILE* file = std::fopen("sdmc:/switch/castleminerz/config.ini", "r");
     if (file == nullptr) {
@@ -112,7 +118,12 @@ bool logging_enabled() {
         if (*p != '=') {
             continue;
         }
-        const std::size_t keylen = p - key;
+        // "logging = 0": the key ends before the spaces in front of '='.
+        const char* key_end = p;
+        while (key_end > key && (key_end[-1] == ' ' || key_end[-1] == '\t')) {
+            --key_end;
+        }
+        const std::size_t keylen = key_end - key;
         if (keylen != 7) {
             continue;
         }
@@ -261,8 +272,14 @@ void cmz_sdl_log_to_host(void* /*userdata*/, int category,
 int main(int argc, char* argv[]) {
     romfsInit();
 
+    // With logging off, mono-nx gets the quiet RomFS config, which redirects
+    // no stdio, so nothing needs the log directory and it is not created.
+    // mono-nx treats a stdio redirect that cannot open its file as fatal, so
+    // an NRO without the quiet config keeps the normal one and the directory.
     const bool logging = logging_enabled();
-    const bool log_directory_ready =
+    const bool quiet_runtime =
+        !logging && access(kQuietRomfsConfigPath, F_OK) == 0;
+    const bool log_directory_ready = !quiet_runtime &&
         ensure_directory("sdmc:/switch") &&
         ensure_directory("sdmc:/switch/castleminerz-logs");
     if (log_directory_ready && logging) {
@@ -386,7 +403,8 @@ int main(int argc, char* argv[]) {
     // redirection) can be changed without rebuilding the NRO.
     constexpr const char* kSdConfigPath =
         "sdmc:/switch/castleminerz-logs/aot_config.ini";
-    const char* config_path = "romfs:/aot_config.ini";
+    const char* config_path =
+        quiet_runtime ? kQuietRomfsConfigPath : kRomfsConfigPath;
     if (access(kSdConfigPath, F_OK) == 0) {
         config_path = kSdConfigPath;
     }

@@ -409,22 +409,35 @@ foreach ($name in @('CastleMinerZ.exe', 'DNA.Common.dll')) {
 }
 Copy-Item -LiteralPath (Join-Path $icuRoot 'share\icu\77.1\icudt77l.dat') -Destination $romfs -Force
 
-$config = @(
-    '[mono]',
-    'logging = true',
+$runtimeSettings = @(
     'icu = romfs:/icudt77l.dat',
     'assembly_dir = romfs:/',
     'config_dir = romfs:/',
-    'default_assembly = romfs:/managed/CastleMinerZ.exe',
-    '',
-    '[nx]',
-    'file_io_redirect = sdmc:/switch/castleminerz-logs/runtime.log',
-    'exit_process_on_end = true'
+    'default_assembly = romfs:/managed/CastleMinerZ.exe'
 )
-[IO.File]::WriteAllText(
-    (Join-Path $romfs 'aot_config.ini'),
-    ($config -join "`n") + "`n",
-    (New-Object Text.UTF8Encoding($false)))
+# The host picks the quiet config when sdmc:/switch/castleminerz/config.ini
+# sets logging = 0: no mono-nx diagnostics and no stdio redirect, so nothing is
+# written to the log directory. mono-nx treats a redirect it cannot open as
+# fatal, which is why logging off must not keep runtime.log.
+$configs = [ordered]@{
+    'aot_config.ini' = @('[mono]', 'logging = true') + $runtimeSettings + @(
+        '',
+        '[nx]',
+        'file_io_redirect = sdmc:/switch/castleminerz-logs/runtime.log',
+        'exit_process_on_end = true'
+    )
+    'aot_config_quiet.ini' = @('[mono]', 'logging = false') + $runtimeSettings + @(
+        '',
+        '[nx]',
+        'exit_process_on_end = true'
+    )
+}
+foreach ($name in $configs.Keys) {
+    [IO.File]::WriteAllText(
+        (Join-Path $romfs $name),
+        ($configs[$name] -join "`n") + "`n",
+        (New-Object Text.UTF8Encoding($false)))
+}
 
 # Regenerate the statically linked AOT module table.
 $symbols = & {

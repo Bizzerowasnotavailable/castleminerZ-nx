@@ -226,7 +226,12 @@ inline bool on_main_thread() {
     return threadGetCurHandle() == g_main_thread;
 }
 
+// With logging off nothing reads these counters, so the wrappers only pay for
+// the tick read before the call and this branch.
 inline void account(int slot, uint64_t start) {
+    if (!g_enabled) {
+        return;
+    }
     const uint64_t elapsed = armGetSystemTick() - start;
     if (on_main_thread()) {
         g_main_gfx.calls[slot] += 1;
@@ -238,6 +243,9 @@ inline void account(int slot, uint64_t start) {
 }
 
 inline void account_draw(uint64_t start, int32_t primitives) {
+    if (!g_enabled) {
+        return;
+    }
     const uint64_t elapsed = armGetSystemTick() - start;
     if (on_main_thread()) {
         g_main_gfx.calls[kGfxDraw] += 1;
@@ -252,6 +260,9 @@ inline void account_draw(uint64_t start, int32_t primitives) {
 }
 
 inline void account_bytes(int slot, uint64_t start, int64_t bytes) {
+    if (!g_enabled) {
+        return;
+    }
     const uint64_t elapsed = armGetSystemTick() - start;
     if (on_main_thread()) {
         g_main_gfx.calls[slot] += 1;
@@ -280,6 +291,9 @@ void publish_gfx() {
 }
 
 void on_present(uint64_t start) {
+    if (!g_enabled) {
+        return;
+    }
     const uint64_t end = armGetSystemTick();
     if (!on_main_thread()) {
         g_offthread_calls.fetch_add(1, kRelaxed);
